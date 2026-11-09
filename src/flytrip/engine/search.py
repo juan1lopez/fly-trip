@@ -148,6 +148,12 @@ class SearchEngine:
         self._hard_timeout_s = hard_timeout_s
         self._cut_detail = f"La búsqueda se cortó a los {hard_timeout_s:g} s"
 
+    async def aclose(self) -> None:
+        for source in (self.kiwi, self.google):
+            close = getattr(source, "aclose", None)
+            if close is not None:
+                await close()
+
     @property
     def max_window_days(self) -> int:
         return min(365, 4 * KIWI_MAX_WINDOW_DAYS)

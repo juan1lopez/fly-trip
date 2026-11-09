@@ -206,6 +206,9 @@ class KiwiSource:
         self._url = url
         self._clock = clock
 
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
     def _result(self, status: str, detail: str, fetches: int) -> SourceResult:
         return SourceResult(
             source=self.name,

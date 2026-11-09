@@ -1,9 +1,13 @@
 import asyncio
+import socket
 import sys
+import webbrowser
 from datetime import date
 from typing import Annotated
 
 import typer
+import uvicorn
+from fastapi import FastAPI
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
@@ -18,8 +22,10 @@ from flytrip.engine.factory import build_engine
 from flytrip.engine.logs import configure_logging
 from flytrip.engine.paths import data_dir, home_dir, logs_dir
 from flytrip.engine.search import SearchEngine, SearchSnapshot, SnapshotEvent
+from flytrip.engine.settings import SettingsStore
 from flytrip.sources.base import PauseRegistry
 from flytrip.sources.kiwi import utc_now
+from flytrip.web.app import create_app
 from flytrip.web.views import (
     SOURCE_NAMES,
     baggage_label,
@@ -214,3 +220,52 @@ def doctor() -> None:
         table.add_row(SOURCE_NAMES.get(h.source, h.source), mark, escape(h.detail))
     Console().print(table)
     raise typer.Exit(code=0 if all(h.ok for h in health) else 1)
+
+
+def find_free_port(start: int = 8765, attempts: int = 20) -> int:
+    for port in range(start, start + attempts):
+        with socket.socket() as probe:
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+    raise OSError(f"No hay puertos libres entre {start} y {start + attempts - 1}.")
+
+
+def make_web_app(engine: SearchEngine, store: SettingsStore) -> FastAPI:
+    """One engine for the whole app lifetime: every request reuses it."""
+    return create_app(engine_factory=lambda: engine, settings_store=store)
+
+
+async def _serve(server: uvicorn.Server, engine: SearchEngine) -> None:
+    try:
+        await server.serve()
+    finally:
+        await engine.aclose()
+
+
+@app.command()
+def web(
+    puerto: Annotated[int, typer.Option("--puerto", help="Puerto preferido.")] = 8765,
+    demo: Annotated[bool, typer.Option("--demo", help="Usa datos grabados, sin red.")] = False,
+    no_abrir: Annotated[bool, typer.Option("--no-abrir", help="No abre el navegador.")] = False,
+) -> None:
+    """Levanta la página de búsqueda en tu computadora."""
+    home = home_dir()
+    configure_logging(logs_dir(home))
+    try:
+        port = find_free_port(puerto)
+    except OSError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from None
+    engine = build_demo_engine(home) if demo else engine_factory(home)
+    store = SettingsStore(data_dir(home) / "settings.json")
+    config = uvicorn.Config(
+        make_web_app(engine, store), host="127.0.0.1", port=port, log_level="warning"
+    )
+    url = f"http://127.0.0.1:{port}"
+    typer.echo(f"fly-trip está listo en {url} (Ctrl+C para cerrar)")
+    if not no_abrir:
+        webbrowser.open(url)
+    asyncio.run(_serve(uvicorn.Server(config), engine))
