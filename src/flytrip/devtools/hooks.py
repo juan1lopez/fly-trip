@@ -1,6 +1,7 @@
 """Claude Code hooks: format after each edit and run the fast check on stop."""
 
 import json
+import os
 import subprocess
 import sys
 from typing import Any
@@ -28,7 +29,14 @@ def summarize_failure(output: str, max_lines: int = 40) -> str:
 
 
 def _run(argv: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(argv, capture_output=True, text=True, check=False)
+    return subprocess.run(
+        argv,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "PYTHONUTF8": "1"},
+        check=False,
+    )
 
 
 def run_post_edit(payload: dict[str, Any]) -> int:
@@ -55,6 +63,8 @@ def main(argv: list[str]) -> int:
     if len(argv) != 1 or argv[0] not in ("post-edit", "stop"):
         print("uso: python -m flytrip.devtools.hooks {post-edit|stop}", file=sys.stderr)
         return 1
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="replace")
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError:
