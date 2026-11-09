@@ -204,11 +204,12 @@ def create_app(
         engine, query, errors = check(request)
         if query is None or errors:
             return HTMLResponse(render("_errors.html", errors=errors), status_code=422)
+        use_cache = not request.query_params.get("refrescar")
 
         async def events() -> AsyncIterator[str]:
             statuses: dict[str, SourceStatus] = {}
             try:
-                async for event in engine.run(query):
+                async for event in engine.run(query, use_cache=use_cache):
                     if isinstance(event, StatusEvent):
                         statuses[event.status.source] = event.status
                         yield _sse("status", render("_status.html", statuses=statuses.values()))

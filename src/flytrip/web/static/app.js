@@ -9,6 +9,7 @@
   var errorsEl = document.getElementById("errors");
   var source = null;
   var searchId = 0;
+  var lastParams = "";
 
   function close() {
     if (source) {
@@ -19,11 +20,22 @@
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
+    run(new URLSearchParams(new FormData(form)).toString(), false);
+  });
+
+  // "Actualizar" re-runs the same search, ignoring the cache; later edits to the form do not count.
+  resultsEl.addEventListener("click", function (event) {
+    if (event.target.closest && event.target.closest("#refresh") && lastParams) {
+      run(lastParams, true);
+    }
+  });
+
+  function run(params, refresh) {
+    lastParams = params;
     close();
     errorsEl.innerHTML = "";
     statusEl.innerHTML = "";
     resultsEl.innerHTML = "";
-    var params = new URLSearchParams(new FormData(form)).toString();
     var id = ++searchId;
     var stale = function () {
       return id !== searchId;
@@ -39,12 +51,12 @@
           });
         }
         if (!response.ok) throw new Error("validate");
-        stream("/buscar/stream?" + params, stale);
+        stream("/buscar/stream?" + params + (refresh ? "&refrescar=1" : ""), stale);
       })
       .catch(function () {
         if (!stale()) errorsEl.innerHTML = "<p>No se pudo completar la búsqueda.</p>";
       });
-  });
+  }
 
   function stream(url, stale) {
     var received = false;

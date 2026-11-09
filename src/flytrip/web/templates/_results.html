@@ -53,7 +53,7 @@
 {% endif %}
 
 <h2>Todos los pasajes ({{ snapshot.itineraries|length }})</h2>
-{% if snapshot.from_cache %}<p class="note">Resultados guardados{% if snapshot.cache_age_minutes is not none %} hace {{ snapshot.cache_age_minutes }} min{% endif %}.</p>{% endif %}
+{% if snapshot.from_cache %}<p class="note">Resultados guardados{% if snapshot.cache_age_minutes is not none %} hace {{ snapshot.cache_age_minutes }} min{% endif %}. <button type="button" id="refresh">Actualizar</button></p>{% endif %}
 <div class="itineraries">
 {% for it in snapshot.itineraries %}
   <article class="itinerary">

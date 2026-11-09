@@ -157,3 +157,49 @@ def test_unknown_separate_tickets_is_never_shown_like_a_single_ticket(client):
     # A and C have an unknown flag, B is flagged as separate tickets.
     assert html.count("No se pudo verificar si son pasajes separados") == 2
     assert html.count("Pasajes separados: si pierdes") == 1
+
+
+def _recording_app(settings_store, snapshot):
+    from fastapi.testclient import TestClient
+
+    from flytrip.web.app import create_app
+    from tests.fakes import StaticEngine
+
+    engine = StaticEngine(snapshot)
+    uses: list[bool] = []
+    original = engine.run
+
+    def recording(query, *, use_cache=True):
+        uses.append(use_cache)
+        return original(query, use_cache=use_cache)
+
+    engine.run = recording  # type: ignore[method-assign]
+    app = create_app(engine_factory=lambda: engine, settings_store=settings_store)
+    return TestClient(app), uses
+
+
+def test_refrescar_bypasses_the_cache_and_plain_search_uses_it(settings_store):
+    from tests.fakes import SNAPSHOT_A_B_C
+
+    client, uses = _recording_app(settings_store, SNAPSHOT_A_B_C)
+    sse_events(client, "/buscar/stream?" + QS)
+    sse_events(client, "/buscar/stream?" + QS + "&refrescar=1")
+    assert uses == [True, False]
+
+
+def test_refresh_button_only_appears_on_cached_results(settings_store):
+
+    from fastapi.testclient import TestClient
+
+    from flytrip.web.app import create_app
+    from tests.fakes import SNAPSHOT_A_B_C, StaticEngine
+
+    def results(snapshot):
+        app = create_app(
+            engine_factory=lambda: StaticEngine(snapshot), settings_store=settings_store
+        )
+        return _results(TestClient(app))
+
+    cached = SNAPSHOT_A_B_C.model_copy(update={"from_cache": True, "cache_age_minutes": 12})
+    assert 'id="refresh"' in results(cached) and "Actualizar" in results(cached)
+    assert "Actualizar" not in results(SNAPSHOT_A_B_C)
