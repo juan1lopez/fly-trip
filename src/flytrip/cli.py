@@ -21,6 +21,7 @@ from flytrip.engine.search import SearchEngine, SearchSnapshot, SnapshotEvent
 from flytrip.sources.base import PauseRegistry
 from flytrip.sources.kiwi import utc_now
 from flytrip.web.views import (
+    SOURCE_NAMES,
     format_short_date,
     format_usd,
     price_breakdown,
@@ -34,8 +35,6 @@ app.add_typer(record_app, name="record")
 
 # Tests replace this to avoid touching the network.
 engine_factory = build_engine
-
-SOURCE_NAMES = {"kiwi": "Kiwi", "google": "Google"}
 
 
 @app.callback()
@@ -128,13 +127,13 @@ def _render(snapshot: SearchSnapshot) -> None:
 
 async def _final_snapshot(
     engine: SearchEngine, query: SearchQuery, use_cache: bool
-) -> SearchSnapshot:
+) -> SearchSnapshot | None:
     last: SearchSnapshot | None = None
     async for event in engine.run(query, use_cache=use_cache):
         if isinstance(event, SnapshotEvent):
             last = event.snapshot
     if last is None:
-        raise RuntimeError("La búsqueda terminó sin resultados.")
+        return None
     return last
 
 
@@ -160,7 +159,13 @@ def search(
     home = home_dir()
     configure_logging(logs_dir(home))
     engine = build_demo_engine(home) if demo else engine_factory(home)
-    nights = None if solo_ida or noches is None else _parse_nights(noches)
+    if solo_ida and noches is not None:
+        typer.echo("Usa --noches o --solo-ida, no los dos.", err=True)
+        raise typer.Exit(code=2)
+    if not solo_ida and noches is None:
+        typer.echo("Indica noches mínimas y máximas, o marca solo ida.", err=True)
+        raise typer.Exit(code=2)
+    nights = None if noches is None else _parse_nights(noches)
     settings = engine.settings
     query = SearchQuery(
         destination=destination.strip().upper(),
@@ -180,6 +185,9 @@ def search(
             typer.echo(message, err=True)
         raise typer.Exit(code=2)
     snapshot = asyncio.run(_final_snapshot(engine, query, use_cache=not sin_cache))
+    if snapshot is None:
+        typer.echo("La búsqueda terminó sin resultados. Intenta de nuevo.", err=True)
+        raise typer.Exit(code=1)
     if as_json:
         typer.echo(snapshot.model_dump_json(indent=2))
     else:
