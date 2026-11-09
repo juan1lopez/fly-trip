@@ -72,7 +72,7 @@ Este dato real muestra por qué conviene buscar desde los tres aeropuertos. Es u
   - Aproximadamente 1 de cada 60 consultas sale vacía y reintenta sola.
   - Puede romperse en cualquier momento y puede ser bloqueado desde servidores en la nube.
 - **Uso moderado (decisión mía):**
-  - Límites por búsqueda: Kiwi, como máximo 6 consultas; Google, como máximo 12 descargas y 3 a la vez.
+  - Límites por búsqueda: Kiwi, como máximo 6 consultas por tramo de fechas, con hasta 4 tramos (ver 5.1); Google, como máximo 12 descargas y 3 a la vez.
   - Si una fuente responde 429, captcha o página de consentimiento, se pausa 1 hora. **Nunca** se intenta esquivar el bloqueo.
 - **Avisos:** corren en GitHub Actions, en un repositorio privado, sin pasar de los minutos gratuitos. El uso estimado es de unos 250 min/mes; hay que verificar el cupo vigente al montarlo.
 - **Moneda:** USD. Lo que acabe cobrando la tarjeta (impuestos o percepciones por compras en moneda extranjera) no se calcula; se muestra el precio de la fuente.
@@ -119,10 +119,10 @@ Descartados: una app de celular (demasiado trabajo para un uso personal) y pedí
 
 **Validación:**
 - Las fechas cumplen `hoy < desde ≤ hasta`, y las noches cumplen `mín ≤ máx`.
-- El rango máximo depende del límite real de Kiwi, que hay que verificar. Si el rango pedido lo supera, se parte en tramos.
+- El rango máximo depende del límite real de Kiwi, que hay que verificar. Si el rango pedido lo supera, se parte en tramos, hasta 4. No se acepta un rango que necesite más tramos, ni uno de más de 365 días.
 
 **Flujo:**
-1. **Kiwi, por origen, en dos modos:** uno con `allow_self_transfer` activado y otro desactivado. Son como máximo 6 consultas y van en paralelo. Un itinerario que solo aparece en el modo con pasajes separados permitidos se marca **⚠ pasajes separados**. Hay que verificar cuál es el valor por defecto de `allow_self_transfer`.
+1. **Kiwi, por origen, en dos modos:** uno con `allow_self_transfer` activado y otro desactivado. Son como máximo 6 consultas por tramo de fechas y van en paralelo. Un itinerario que solo aparece en el modo con pasajes separados permitidos se marca **⚠ pasajes separados**. Hay que verificar cuál es el valor por defecto de `allow_self_transfer`.
 2. **Elegir las fechas que se confirman en Google** (decisión mía):
    - Por origen, se toman los pares (salida, regreso) distintos más baratos que devolvió Kiwi. Se reparten por turnos entre los orígenes hasta agotar el límite de 12 descargas de Google.
    - Un par de ida y vuelta cuesta 2 descargas (la ida, más las vueltas de la ida más barata), así que caben 6. En solo ida, cada fecha cuesta 1 descarga y caben 12.
