@@ -13,7 +13,12 @@ from rich.markup import escape
 from rich.table import Table
 
 from flytrip.core.models import Itinerary
-from flytrip.core.query import SearchQuery, today_in_mendoza, validate_query
+from flytrip.core.query import (
+    SearchQuery,
+    today_for_validation,
+    today_in_mendoza,
+    validate_query,
+)
 from flytrip.devtools.check import build_check_steps, run_check_steps
 from flytrip.devtools.demo import build_demo_engine
 from flytrip.devtools.record import record_app
@@ -189,7 +194,7 @@ def search(
         adults=adultos if adultos is not None else settings.adults,
         allow_separate_tickets=settings.allow_separate_tickets and not sin_separados,
     )
-    errors = validate_query(query, today_in_mendoza(utc_now()), engine.max_window_days)
+    errors = validate_query(query, today_for_validation(utc_now()), engine.max_window_days)
     if errors:
         for message in errors:
             typer.echo(message, err=True)

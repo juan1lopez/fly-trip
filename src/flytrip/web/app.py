@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from flytrip.core.models import TransferCost
-from flytrip.core.query import SearchQuery, today_in_mendoza, validate_query
+from flytrip.core.query import SearchQuery, today_for_validation, validate_query
 from flytrip.engine.search import SearchEngine, SnapshotEvent, SourceStatus, StatusEvent
 from flytrip.engine.settings import Settings, SettingsStore
 from flytrip.web import views
@@ -188,7 +188,7 @@ def create_app(
         engine = engine_factory()
         query, errors = _parse_query(request.query_params)
         if query is not None:
-            today = today_in_mendoza(datetime.now(UTC))
+            today = today_for_validation(datetime.now(UTC))
             errors = validate_query(query, today, engine.max_window_days)
         return engine, query, errors
 

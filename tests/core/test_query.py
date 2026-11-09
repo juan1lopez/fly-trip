@@ -39,3 +39,17 @@ def test_oneway_needs_no_nights():
 
 def test_cache_key_changes_with_query():
     assert q().cache_key() == q().cache_key() != q(adults=2).cache_key()
+
+
+def test_today_for_validation_honours_the_test_only_env_var(monkeypatch):
+    from datetime import UTC, date, datetime
+
+    from flytrip.core.query import today_for_validation
+
+    now = datetime(2030, 1, 5, 12, 0, tzinfo=UTC)
+    monkeypatch.setenv("FLYTRIP_TODAY", "2026-11-09")
+    assert today_for_validation(now) == date(2026, 11, 9)
+    monkeypatch.setenv("FLYTRIP_TODAY", "not-a-date")
+    assert today_for_validation(now) == date(2030, 1, 5)
+    monkeypatch.delenv("FLYTRIP_TODAY")
+    assert today_for_validation(now) == date(2030, 1, 5)

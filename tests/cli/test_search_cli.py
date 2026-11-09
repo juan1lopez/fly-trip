@@ -43,7 +43,12 @@ def test_invalid_query_exits_2_in_spanish(monkeypatch):
 
 
 def test_search_output_survives_cp1252(tmp_path):
-    env = {**os.environ, "PYTHONIOENCODING": "cp1252", "FLYTRIP_HOME": str(tmp_path)}
+    env = {
+        **os.environ,
+        "PYTHONIOENCODING": "cp1252",
+        "FLYTRIP_HOME": str(tmp_path),
+        "FLYTRIP_TODAY": "2026-11-09",
+    }
     proc = subprocess.run(
         [sys.executable, "-m", "flytrip", *ARGS, "--demo"],
         env=env,
@@ -74,3 +79,10 @@ def test_search_without_snapshot_exits_1_in_spanish(monkeypatch):
     r = CliRunner().invoke(cli.app, ARGS)
     assert r.exit_code == 1 and "La búsqueda terminó sin resultados." in r.output
     assert "Traceback" not in r.output
+
+
+def test_cli_validation_uses_the_today_seam(monkeypatch):
+    monkeypatch.setattr(cli, "engine_factory", lambda home: StaticEngine(SNAPSHOT_A_B_C))
+    monkeypatch.setenv("FLYTRIP_TODAY", "2027-06-01")
+    r = CliRunner().invoke(cli.app, ARGS)
+    assert r.exit_code == 2 and "La fecha 'desde' tiene que ser posterior a hoy." in r.output

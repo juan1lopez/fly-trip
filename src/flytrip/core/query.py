@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from datetime import date, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -11,6 +12,17 @@ MENDOZA_TZ = ZoneInfo("America/Argentina/Mendoza")
 
 def today_in_mendoza(now_utc: datetime) -> date:
     return now_utc.astimezone(MENDOZA_TZ).date()
+
+
+def today_for_validation(now_utc: datetime) -> date:
+    """Today as the validators see it. `FLYTRIP_TODAY` (an ISO date) is a TEST-ONLY override."""
+    override = os.environ.get("FLYTRIP_TODAY")
+    if override:
+        try:
+            return date.fromisoformat(override)
+        except ValueError:
+            pass
+    return today_in_mendoza(now_utc)
 
 
 class SearchQuery(BaseModel):

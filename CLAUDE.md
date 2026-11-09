@@ -35,6 +35,7 @@ Se verifican con import-linter dentro de `fly check`:
 - Las respuestas de las fuentes viven en `tests/fixtures/`; se graban con `fly record`.
 - Toda fuente cumple el mismo contrato común de tests.
 - Los tests del navegador llevan la marca `e2e`.
+- `FLYTRIP_TODAY` (fecha ISO) fija el "hoy" de las validaciones (`today_for_validation`). Es SOLO para tests: `tests/conftest.py` la define en 2026-11-09 para que las fechas fijas de 2027 no envejezcan, y los tests con subprocesos la pasan en su entorno.
 
 ## Lecciones reales
 

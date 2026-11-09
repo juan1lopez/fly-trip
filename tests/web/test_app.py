@@ -203,3 +203,10 @@ def test_refresh_button_only_appears_on_cached_results(settings_store):
     cached = SNAPSHOT_A_B_C.model_copy(update={"from_cache": True, "cache_age_minutes": 12})
     assert 'id="refresh"' in results(cached) and "Actualizar" in results(cached)
     assert "Actualizar" not in results(SNAPSHOT_A_B_C)
+
+
+def test_web_validation_uses_the_today_seam(client, monkeypatch):
+    monkeypatch.setenv("FLYTRIP_TODAY", "2027-06-01")
+    r = client.get("/buscar/validar?" + QS)
+    assert r.status_code == 422
+    assert "La fecha 'desde' tiene que ser posterior a hoy." in unescape(r.text)

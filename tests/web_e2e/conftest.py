@@ -20,7 +20,7 @@ def demo_server(tmp_path: Path) -> Iterator[str]:
     port = _free_port()
     proc = subprocess.Popen(
         [sys.executable, "-m", "flytrip", "web", "--demo", "--no-abrir", "--puerto", str(port)],
-        env={**os.environ, "FLYTRIP_HOME": str(tmp_path)},
+        env={**os.environ, "FLYTRIP_HOME": str(tmp_path), "FLYTRIP_TODAY": "2026-11-09"},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
