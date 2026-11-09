@@ -73,7 +73,7 @@ def build_demo_engine(home: Path) -> SearchEngine:
     return SearchEngine(
         kiwi=ReplayKiwi(),
         google=ReplayGoogle(),
-        settings=SettingsStore(data / "settings.json").load(),
+        settings_provider=SettingsStore(data / "settings.json").load,
         cache=SearchCache(data / "cache-demo.sqlite", clock),
         pauses=PauseRegistry(data / "pauses-demo.json", clock),
         clock=clock,

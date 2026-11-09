@@ -129,7 +129,7 @@ class SearchEngine:
         *,
         kiwi: Source,
         google: Source,
-        settings: Settings,
+        settings_provider: Callable[[], Settings],
         cache: SearchCache,
         pauses: PauseRegistry,
         clock: Callable[[], datetime],
@@ -139,7 +139,7 @@ class SearchEngine:
     ) -> None:
         self.kiwi = kiwi
         self.google = google
-        self.settings = settings
+        self._settings_provider = settings_provider
         self._cache = cache
         self._pauses = pauses
         self._clock = clock
@@ -155,6 +155,11 @@ class SearchEngine:
                 await close()
 
     @property
+    def settings(self) -> Settings:
+        """The settings as they are right now (saved changes apply without a restart)."""
+        return self._settings_provider()
+
+    @property
     def max_window_days(self) -> int:
         return min(365, 4 * KIWI_MAX_WINDOW_DAYS)
 
@@ -162,7 +167,8 @@ class SearchEngine:
         self, query: SearchQuery, *, use_cache: bool = True
     ) -> AsyncIterator[StatusEvent | SnapshotEvent]:
         key = query.cache_key()
-        cached = self._from_cache(key) if use_cache else None
+        settings = self.settings  # read once per run: one search never mixes two settings
+        cached = self._from_cache(key, query, settings) if use_cache else None
         if cached is not None:
             yield SnapshotEvent(snapshot=cached, final=True)
             return
@@ -184,7 +190,9 @@ class SearchEngine:
                 source=self.google.name, state="timeout", detail=self._cut_detail
             )
         else:
-            yield SnapshotEvent(snapshot=self._snapshot(query, found, statuses), final=False)
+            yield SnapshotEvent(
+                snapshot=self._snapshot(query, found, statuses, settings), final=False
+            )
             pairs = select_google_candidates(found, query, GOOGLE_FETCH_BUDGET)
             google_status = self._google_hold(pairs)
             if google_status is None:
@@ -197,7 +205,7 @@ class SearchEngine:
         merged = merge_duplicates([*found, *confirmed])
         if not query.allow_separate_tickets:
             merged = [it for it in merged if it.separate_tickets is not True]
-        final = self._snapshot(query, merged, statuses)
+        final = self._snapshot(query, merged, statuses, settings)
         if any(status.state == "ok" for status in statuses.values()):
             self._cache.put(key, final.model_dump_json())
         yield SnapshotEvent(snapshot=final, final=True)
@@ -317,18 +325,21 @@ class SearchEngine:
         query: SearchQuery,
         itineraries: Sequence[Itinerary],
         statuses: dict[str, SourceStatus],
+        settings: Settings,
     ) -> SearchSnapshot:
-        ranked = sort_by_total(apply_transfers(itineraries, self.settings.transfers))
+        ranked = sort_by_total(apply_transfers(itineraries, settings.transfers))
         return SearchSnapshot(
             query=query,
             itineraries=tuple(ranked),
             best_per_origin=best_per_origin(ranked, query.origins),
-            best_balance=best_balance(ranked, self.settings.usd_per_hour),
+            best_balance=best_balance(ranked, settings.usd_per_hour),
             statuses=dict(statuses),
             completed_at=self._clock(),
         )
 
-    def _from_cache(self, key: str) -> SearchSnapshot | None:
+    def _from_cache(
+        self, key: str, query: SearchQuery, settings: Settings
+    ) -> SearchSnapshot | None:
         hit = self._cache.get(key)
         if hit is None:
             return None
@@ -337,4 +348,12 @@ class SearchEngine:
             snapshot = SearchSnapshot.model_validate_json(payload)
         except ValidationError:
             return None  # stored by an older version of the models: search again
-        return snapshot.model_copy(update={"from_cache": True, "cache_age_minutes": age})
+        # The cache holds itineraries; transfers and rankings follow the settings of today.
+        current = self._snapshot(query, snapshot.itineraries, snapshot.statuses, settings)
+        return current.model_copy(
+            update={
+                "completed_at": snapshot.completed_at,
+                "from_cache": True,
+                "cache_age_minutes": age,
+            }
+        )

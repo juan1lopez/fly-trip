@@ -81,12 +81,14 @@ def build_engine(
     *,
     kiwi: Source,
     google: Source,
+    settings: Callable[[], Settings] | None = None,
     **timeouts: float,
 ) -> SearchEngine:
+    default = Settings(transfers={"SCL": T("80", "7"), "EZE": T("200", "2")})
     return SearchEngine(
         kiwi=kiwi,
         google=google,
-        settings=Settings(transfers={"SCL": T("80", "7"), "EZE": T("200", "2")}),
+        settings_provider=settings or (lambda: default),
         cache=SearchCache(tmp_path / "cache.sqlite", clock),
         pauses=pauses,
         clock=clock,

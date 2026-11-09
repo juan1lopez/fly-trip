@@ -6,9 +6,10 @@ from decimal import Decimal
 import pytest
 
 from flytrip.engine.search import SnapshotEvent, StatusEvent
+from flytrip.engine.settings import Settings
 from flytrip.sources.base import SourceRequest, SourceResult
 from tests.engine.conftest import build_engine, collect, google_answer, kiwi_answer
-from tests.factories import itin_on
+from tests.factories import T, itin_on
 from tests.factories import make_query as q
 from tests.fakes import FakeSource
 
@@ -240,3 +241,30 @@ async def test_protected_only_results_are_kept(tmp_path, clock, pauses):
         "PROT": False,
         "EXTRA": False,
     }
+
+
+async def test_settings_saved_after_a_search_apply_to_the_cached_result(tmp_path, clock, pauses):
+    current = {"settings": Settings(transfers={"SCL": T("80", "7"), "EZE": T("200", "2")})}
+    engine = build_engine(
+        tmp_path,
+        clock,
+        pauses,
+        kiwi=FakeSource("kiwi", kiwi_answer()),
+        google=FakeSource("google", google_answer()),
+        settings=lambda: current["settings"],
+    )
+    fresh = (await collect(engine.run(q())))[-1].snapshot
+    assert fresh.best_per_origin["SCL"].total_from_home_usd == Decimal("838")
+    current["settings"] = Settings(
+        transfers={"SCL": T("500", "7"), "EZE": T("200", "2")}, usd_per_hour=Decimal("0")
+    )
+    [hit] = await collect(engine.run(q()))
+    snapshot = hit.snapshot
+    assert snapshot.from_cache and snapshot.cache_age_minutes == 0
+    assert snapshot.completed_at == fresh.completed_at
+    assert snapshot.best_per_origin["SCL"].total_from_home_usd == Decimal("1258")
+    assert snapshot.best_balance == min(
+        snapshot.itineraries, key=lambda i: (i.total_from_home_usd, i.id)
+    )
+    totals = [i.total_from_home_usd for i in snapshot.itineraries]
+    assert totals == sorted(totals)

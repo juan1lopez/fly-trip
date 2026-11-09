@@ -18,7 +18,7 @@ def build_engine(home: Path) -> SearchEngine:
     return SearchEngine(
         kiwi=KiwiSource(httpx.AsyncClient(timeout=20)),
         google=GoogleFlightsSource(RealFliClient()),
-        settings=SettingsStore(data / "settings.json").load(),
+        settings_provider=SettingsStore(data / "settings.json").load,
         cache=SearchCache(data / "cache.sqlite", utc_now),
         pauses=PauseRegistry(data / "pauses.json", utc_now),
         clock=utc_now,

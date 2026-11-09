@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from html import unescape
 
 from tests.factories import T
@@ -103,3 +104,29 @@ def test_engine_failure_emits_error_then_done(settings_store):
     assert [name for name, _ in events] == ["error", "done"]
     assert "La búsqueda falló por un error inesperado. Intenta de nuevo." in events[0][1]
     assert "secret" not in events[0][1]
+
+
+def test_settings_saved_in_ajustes_reach_the_running_engine_and_its_cache(tmp_path, settings_store):
+    from fastapi.testclient import TestClient
+
+    from flytrip.sources.base import PauseRegistry
+    from flytrip.web.app import create_app
+    from tests.engine.conftest import Clock, build_engine, google_answer, kiwi_answer
+    from tests.fakes import FakeSource
+
+    clock = Clock(datetime(2026, 11, 9, 15, 0, tzinfo=UTC))
+    engine = build_engine(
+        tmp_path,
+        clock,
+        PauseRegistry(tmp_path / "pauses.json", clock),
+        kiwi=FakeSource("kiwi", kiwi_answer()),
+        google=FakeSource("google", google_answer()),
+        settings=settings_store.load,
+    )
+    client = TestClient(create_app(engine_factory=lambda: engine, settings_store=settings_store))
+    assert "758 + traslado (sin configurar)" in _results(client)
+    client.post(
+        "/ajustes",
+        data={"traslado_SCL_costo": "80", "traslado_SCL_horas": "7", "usd_por_hora": "10"},
+    )
+    assert "758 + 80 traslado" in _results(client)

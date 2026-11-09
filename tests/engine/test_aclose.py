@@ -36,7 +36,7 @@ async def test_engine_aclose_closes_sources_that_support_it(tmp_path):
     engine = SearchEngine(
         kiwi=Closable("kiwi", closed),
         google=Plain(),
-        settings=Settings(),
+        settings_provider=Settings,
         cache=SearchCache(tmp_path / "c.sqlite", lambda: NOW),
         pauses=PauseRegistry(tmp_path / "p.json", lambda: NOW),
         clock=lambda: NOW,
