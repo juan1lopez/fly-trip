@@ -5,12 +5,14 @@ from typing import Annotated
 import httpx
 import typer
 
+from flytrip.devtools.record_google import record_google
 from flytrip.sources.base import SourceRequest
 from flytrip.sources.kiwi import KIWI_URL, build_arguments, build_rpc_body
 
 record_app = typer.Typer(help="Graba respuestas reales de las fuentes como fixtures de tests.")
 
 KIWI_FIXTURES = Path("tests/fixtures/kiwi")
+GOOGLE_FIXTURES = Path("tests/fixtures/google")
 
 
 def _parse_nights(value: str) -> tuple[int, int]:
@@ -57,4 +59,20 @@ def kiwi(
     KIWI_FIXTURES.mkdir(parents=True, exist_ok=True)
     target = KIWI_FIXTURES / f"{scenario}.sse"
     target.write_bytes(response.text.replace("\r\n", "\n").encode("utf-8"))
+    typer.echo(f"Guardado {target}")
+
+
+@record_app.command()
+def google(
+    scenario: Annotated[str, typer.Argument(help="Nombre del fixture, sin extensión.")],
+    origen: Annotated[str, typer.Option("--origen")],
+    destino: Annotated[str, typer.Option("--destino")],
+    salida: Annotated[str, typer.Option("--salida", help="AAAA-MM-DD")],
+    noches: Annotated[int | None, typer.Option("--noches")] = None,
+    adultos: Annotated[int, typer.Option("--adultos")] = 1,
+) -> None:
+    """Hace UNA búsqueda en Google Flights y guarda el resultado en tests/fixtures/google/."""
+    target = record_google(
+        scenario, origen, destino, date.fromisoformat(salida), noches, adultos, GOOGLE_FIXTURES
+    )
     typer.echo(f"Guardado {target}")
