@@ -4,7 +4,7 @@ Servidor MCP oficial de Kiwi.com: `POST https://mcp.kiwi.com`, sin autenticació
 
 ## Cómo se consulta
 
-- Encabezados: `Content-Type: application/json` y `Accept: application/json, text/event-stream`.
+- Encabezados: `Content-Type: application/json`, `Accept: application/json, text/event-stream` y `User-Agent: fly-trip/0.1 (uso personal)`.
 - Cuerpo: llamada JSON-RPC `tools/call` a la herramienta `search-flight`.
 - La respuesta llega como SSE (`event: message` / `data: {json}`). Los datos útiles están en `result.structuredContent`; si falta, en `result.content[0].text`.
 

@@ -7,7 +7,7 @@ import typer
 
 from flytrip.devtools.record_google import record_google
 from flytrip.sources.base import SourceRequest
-from flytrip.sources.kiwi import KIWI_URL, build_arguments, build_rpc_body
+from flytrip.sources.kiwi import KIWI_HEADERS, KIWI_URL, build_arguments, build_rpc_body
 
 record_app = typer.Typer(help="Graba respuestas reales de las fuentes como fixtures de tests.")
 
@@ -20,7 +20,7 @@ def _parse_nights(value: str) -> tuple[int, int]:
     try:
         return int(low), int(high or low)
     except ValueError as exc:
-        raise typer.BadParameter("Usá el formato 14-21.") from exc
+        raise typer.BadParameter("Usa el formato 14-21.") from exc
 
 
 @record_app.command()
@@ -49,10 +49,7 @@ def kiwi(
     response = httpx.post(
         KIWI_URL,
         json=build_rpc_body(build_arguments(request)),
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        },
+        headers=KIWI_HEADERS,
         timeout=90,
     )
     response.raise_for_status()

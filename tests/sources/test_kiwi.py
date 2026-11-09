@@ -173,3 +173,15 @@ async def test_429_pauses_kiwi(tmp_path):
         )
     assert r.status == "paused"
     assert pauses.active_pause("kiwi") is not None
+
+
+@respx.mock
+async def test_request_sends_identifying_headers():
+    route = respx.post(KIWI_URL).mock(
+        return_value=httpx.Response(200, text=fixture("kiwi", "empty.sse"))
+    )
+    async with httpx.AsyncClient() as c:
+        await KiwiSource(c, clock=CLOCK).search(SHORT_REQ)
+    headers = route.calls.last.request.headers
+    assert headers["user-agent"] == "fly-trip/0.1 (uso personal)"
+    assert headers["accept"] == "application/json, text/event-stream"
