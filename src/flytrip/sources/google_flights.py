@@ -32,7 +32,7 @@ from flytrip.sources.base import SourceBlocked, SourceRequest, SourceResult
 GOOGLE_FETCH_BUDGET = 12
 GOOGLE_MAX_CONCURRENCY = 3
 GOOGLE_RETURN_PAIR_COST = 2
-# Verified live (docs/sources/google-flights.md): with adults=2 the price is the total.
+# ASSUMED, NOT VERIFIED live: see docs/sources/google-flights.md (question d).
 GOOGLE_PRICE_IS_TOTAL = True
 
 RawResults = list[FlightResult | tuple[FlightResult, ...]]
@@ -136,6 +136,15 @@ def _segments(result: FlightResult) -> list[Segment]:
     ]
 
 
+def _separate_tickets(parts: tuple[FlightResult, ...]) -> bool | None:
+    flags = [p.self_transfer for p in parts]
+    if any(f is True for f in flags):
+        return True
+    if any(f is False for f in flags):
+        return False
+    return None
+
+
 def normalize_results(
     raw: RawResults | None,
     *,
@@ -179,7 +188,7 @@ def normalize_results(
                     ),
                 ),
                 baggage=None,
-                separate_tickets=parts[0].self_transfer,
+                separate_tickets=_separate_tickets(parts),
             )
         )
     return itineraries
