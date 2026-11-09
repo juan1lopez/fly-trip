@@ -210,7 +210,9 @@ async def test_failed_protected_mode_leaves_separate_tickets_unknown(tmp_path, c
         google=FakeSource("google", google_answer()),
     )
     final = (await collect(engine.run(q())))[-1].snapshot
-    assert final.statuses["kiwi"].state == "ok"
+    kiwi_status = final.statuses["kiwi"]
+    assert (kiwi_status.state, kiwi_status.detail) == ("partial", "falló MDZ: Kiwi respondió 500")
+    assert final.failed_origins == {}
     assert {i.id: i.separate_tickets for i in final.itineraries if i.id in {"SELF", "PROT"}} == {
         "SELF": None,
         "PROT": None,
@@ -268,3 +270,34 @@ async def test_settings_saved_after_a_search_apply_to_the_cached_result(tmp_path
     )
     totals = [i.total_from_home_usd for i in snapshot.itineraries]
     assert totals == sorted(totals)
+
+
+async def test_origin_failing_in_every_call_is_reported_and_status_is_partial(
+    tmp_path, clock, pauses
+):
+    full = kiwi_answer()
+
+    def kiwi(request):
+        if request.origin == "EZE":
+            return _error("kiwi", "Kiwi respondió 500")
+        return full(request)
+
+    engine = build_engine(
+        tmp_path,
+        clock,
+        pauses,
+        kiwi=FakeSource("kiwi", kiwi),
+        google=FakeSource("google", google_answer(eze=False)),
+    )
+    final = (await collect(engine.run(q())))[-1].snapshot
+    assert final.statuses["kiwi"].state == "partial"
+    assert final.statuses["kiwi"].detail == "falló EZE: Kiwi respondió 500"
+    assert final.failed_origins == {"EZE": "Kiwi respondió 500"}
+    assert final.best_per_origin["EZE"] is None
+    [hit] = await collect(engine.run(q()))
+    assert hit.snapshot.from_cache and hit.snapshot.failed_origins == final.failed_origins
+
+
+async def test_all_kiwi_calls_ok_stay_ok_without_failed_origins(engine):
+    final = (await collect(engine.run(q())))[-1].snapshot
+    assert final.statuses["kiwi"].state == "ok" and final.failed_origins == {}

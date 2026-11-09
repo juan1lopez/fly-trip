@@ -28,9 +28,11 @@ from flytrip.sources.kiwi import utc_now
 from flytrip.web.app import create_app
 from flytrip.web.views import (
     SOURCE_NAMES,
+    UNKNOWN_SEPARATE,
     baggage_label,
     format_short_date,
     format_usd,
+    origin_label,
     price_breakdown,
     route_label,
     status_label,
@@ -80,7 +82,8 @@ def _parse_nights(text: str) -> tuple[int, int]:
 
 
 def _itinerary_row(index: int, it: Itinerary) -> tuple[str, ...]:
-    route = route_label(it.outbound) + (" ⚠" if it.separate_tickets else "")
+    mark = " ⚠" if it.separate_tickets else (" ?" if it.separate_tickets is None else "")
+    route = route_label(it.outbound) + mark
     dates = format_short_date(it.outbound.segments[0].departure_local.date())
     stops = str(it.outbound.stops)
     if it.inbound is not None:
@@ -122,6 +125,10 @@ def _render(snapshot: SearchSnapshot) -> None:
     console.print(table)
     if any(it.separate_tickets for it in snapshot.itineraries):
         console.print("⚠ = pasajes separados: si uno se demora, el otro no se protege.")
+    if any(it.separate_tickets is None for it in snapshot.itineraries):
+        console.print(f"? = {UNKNOWN_SEPARATE}.")
+    for origin, reason in snapshot.failed_origins.items():
+        console.print(escape(f"No se pudo consultar {origin_label(origin)}: {reason}"))
     for status in snapshot.statuses.values():
         console.print(escape(status_label(status)))
     if snapshot.from_cache:

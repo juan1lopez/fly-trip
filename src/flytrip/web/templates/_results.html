@@ -32,6 +32,9 @@
       <p class="breakdown">{{ price_breakdown(best) }}</p>
       <p>{{ format_short_date(best.outbound.segments[0].departure_local.date()) }} · {{ route_label(best.outbound) }}</p>
       {{ buy(best) }}
+    {% elif code in snapshot.failed_origins %}
+      <p class="empty failed">No se pudo consultar este origen</p>
+      <p class="breakdown">{{ snapshot.failed_origins[code] }}</p>
     {% else %}
       <p class="empty">Sin resultados para este origen</p>
     {% endif %}
@@ -69,6 +72,8 @@
       </p>
       {% if it.separate_tickets %}
       <p class="warning">⚠ Pasajes separados: si pierdes la conexión, nadie te recoloca</p>
+      {% elif it.separate_tickets is none %}
+      <p class="note unknown-separate">? {{ unknown_separate }}</p>
       {% endif %}
       {{ buy(it) }}
     </div>

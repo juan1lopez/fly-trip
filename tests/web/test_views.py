@@ -31,6 +31,8 @@ def test_status_label():
     assert status_label(ok) == "Kiwi: OK (15 en 2,3 s)"
     paused = SourceStatus(source="google", state="paused", detail="429")
     assert status_label(paused) == "Google Flights: en pausa — 429"
+    partial = SourceStatus(source="kiwi", state="partial", detail="falló EZE: Kiwi respondió 500")
+    assert status_label(partial) == "Kiwi: parcial — falló EZE: Kiwi respondió 500"
     pending = SourceStatus(source="google", state="pending")
     assert status_label(pending) == "Google Flights: esperando"
     assert status_label(SourceStatus(source="kiwi", state="running")) == "Kiwi: buscando…"

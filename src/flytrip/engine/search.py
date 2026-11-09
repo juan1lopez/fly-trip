@@ -31,7 +31,9 @@ log = logging.getLogger("flytrip.search")
 
 NO_DATES_DETAIL = "Sin fechas para confirmar"
 
-SourceState = Literal["pending", "running", "ok", "paused", "error", "timeout", "skipped"]
+SourceState = Literal[
+    "pending", "running", "ok", "partial", "paused", "error", "timeout", "skipped"
+]
 
 
 class SourceStatus(BaseModel):
@@ -52,6 +54,8 @@ class SearchSnapshot(BaseModel):
     best_per_origin: dict[str, Itinerary | None]
     best_balance: Itinerary | None
     statuses: dict[str, SourceStatus]
+    # Origin -> why it could not be queried, when every call for that origin failed.
+    failed_origins: dict[str, str] = {}
     completed_at: datetime
     from_cache: bool = False
     cache_age_minutes: int | None = None
@@ -181,7 +185,7 @@ class SearchEngine:
         for status in statuses.values():
             yield StatusEvent(status=status)
 
-        found, kiwi_status, cut = await self._explore(query, deadline)
+        found, kiwi_status, cut, failed_origins = await self._explore(query, deadline)
         yield self._finish(kiwi_status, statuses, key)
         confirmed: list[Itinerary] = []
         google_status: SourceStatus | None
@@ -191,7 +195,8 @@ class SearchEngine:
             )
         else:
             yield SnapshotEvent(
-                snapshot=self._snapshot(query, found, statuses, settings), final=False
+                snapshot=self._snapshot(query, found, statuses, settings, failed_origins),
+                final=False,
             )
             pairs = select_google_candidates(found, query, GOOGLE_FETCH_BUDGET)
             google_status = self._google_hold(pairs)
@@ -205,14 +210,14 @@ class SearchEngine:
         merged = merge_duplicates([*found, *confirmed])
         if not query.allow_separate_tickets:
             merged = [it for it in merged if it.separate_tickets is not True]
-        final = self._snapshot(query, merged, statuses, settings)
+        final = self._snapshot(query, merged, statuses, settings, failed_origins)
         if any(status.state == "ok" for status in statuses.values()):
             self._cache.put(key, final.model_dump_json())
         yield SnapshotEvent(snapshot=final, final=True)
 
     async def _explore(
         self, query: SearchQuery, deadline: float
-    ) -> tuple[list[Itinerary], SourceStatus, bool]:
+    ) -> tuple[list[Itinerary], SourceStatus, bool, dict[str, str]]:
         started = time.monotonic()
         requests = _kiwi_requests(query)
         outcomes, cut = await self._call_all(self.kiwi, requests, self._kiwi_timeout_s, deadline)
@@ -225,7 +230,8 @@ class SearchEngine:
             for origin in query.origins
             for it in _combine_modes(by_mode.get((origin, True)), by_mode.get((origin, False)))
         ]
-        return found, self._summary(self.kiwi.name, outcomes, cut, len(found), started), cut
+        status = self._summary(self.kiwi.name, requests, outcomes, cut, len(found), started)
+        return found, status, cut, self._failed_origins(requests, outcomes)
 
     async def _confirm(
         self, query: SearchQuery, pairs: Sequence[DatePair], deadline: float
@@ -240,7 +246,8 @@ class SearchEngine:
         confirmed = [
             it for outcome in outcomes if outcome is not None for it in outcome.itineraries
         ]
-        return confirmed, self._summary(self.google.name, outcomes, cut, len(confirmed), started)
+        status = self._summary(self.google.name, requests, outcomes, cut, len(confirmed), started)
+        return confirmed, status
 
     async def _call_all(
         self, source: Source, requests: Sequence[SourceRequest], timeout_s: float, deadline: float
@@ -266,15 +273,34 @@ class SearchEngine:
             await asyncio.gather(*late, return_exceptions=True)
         return [None if task.cancelled() else task.result() for task in tasks], bool(late)
 
+    def _failed_origins(
+        self, requests: Sequence[SourceRequest], outcomes: Sequence[SourceResult | None]
+    ) -> dict[str, str]:
+        """Origins where no call succeeded, each with the reason of its first failed call."""
+        reasons: dict[str, str] = {}
+        succeeded: set[str] = set()
+        for request, outcome in zip(requests, outcomes, strict=True):
+            if outcome is not None and outcome.status == "ok":
+                succeeded.add(request.origin)
+            else:
+                detail = self._cut_detail if outcome is None else outcome.detail
+                reasons.setdefault(request.origin, detail)
+        return {origin: why for origin, why in reasons.items() if origin not in succeeded}
+
     def _summary(
         self,
         name: str,
+        requests: Sequence[SourceRequest],
         outcomes: Sequence[SourceResult | None],
         cut: bool,
         count: int,
         started: float,
     ) -> SourceStatus:
-        """One status for all the calls to a source: a block wins, then the cut, then success."""
+        """One status for all the calls to a source.
+
+        A pause wins, then the cut, then the mix: all failed is the failure itself, some failed is
+        "partial" (it lists what failed) and all fine is "ok".
+        """
         results = [outcome for outcome in outcomes if outcome is not None]
         latency_ms = int((time.monotonic() - started) * 1000)
 
@@ -289,9 +315,16 @@ class SearchEngine:
             return status("paused", paused.detail)
         if cut:
             return status("timeout", self._cut_detail)
-        if failed is None or any(r.status == "ok" for r in results):
+        if failed is None:
             return status("ok")
-        return status(failed.status, failed.detail)
+        if not any(r.status == "ok" for r in results):
+            return status(failed.status, failed.detail)
+        failures = dict.fromkeys(
+            f"falló {request.origin}: {outcome.detail}"
+            for request, outcome in zip(requests, outcomes, strict=True)
+            if outcome is not None and outcome.status != "ok"
+        )
+        return status("partial", "; ".join(failures))
 
     def _google_hold(self, pairs: Sequence[DatePair]) -> SourceStatus | None:
         """Why Google is not called this time, or None when it should be."""
@@ -326,6 +359,7 @@ class SearchEngine:
         itineraries: Sequence[Itinerary],
         statuses: dict[str, SourceStatus],
         settings: Settings,
+        failed_origins: dict[str, str] | None = None,
     ) -> SearchSnapshot:
         ranked = sort_by_total(apply_transfers(itineraries, settings.transfers))
         return SearchSnapshot(
@@ -334,6 +368,7 @@ class SearchEngine:
             best_per_origin=best_per_origin(ranked, query.origins),
             best_balance=best_balance(ranked, settings.usd_per_hour),
             statuses=dict(statuses),
+            failed_origins=failed_origins or {},
             completed_at=self._clock(),
         )
 
@@ -349,7 +384,9 @@ class SearchEngine:
         except ValidationError:
             return None  # stored by an older version of the models: search again
         # The cache holds itineraries; transfers and rankings follow the settings of today.
-        current = self._snapshot(query, snapshot.itineraries, snapshot.statuses, settings)
+        current = self._snapshot(
+            query, snapshot.itineraries, snapshot.statuses, settings, snapshot.failed_origins
+        )
         return current.model_copy(
             update={
                 "completed_at": snapshot.completed_at,

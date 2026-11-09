@@ -15,7 +15,7 @@ button, .buy { background: var(--accent); color: #fff; border: 0; padding: .5rem
 .status-bar { list-style: none; display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; }
 .status-bar li { background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: .2rem .8rem; font-size: .85rem; }
 .status-error, .status-timeout { border-color: #b00020 !important; }
-.status-paused, .status-skipped { border-color: var(--warn) !important; }
+.status-paused, .status-skipped, .status-partial { border-color: var(--warn) !important; }
 .origin-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
 .origin-card, .balance, .itinerary { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 1rem; }
 .itineraries { display: grid; gap: .8rem; }

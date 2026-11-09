@@ -20,6 +20,14 @@ def test_search_table_shows_totals_and_warning(monkeypatch):
     assert "Kiwi: OK (15 en 2,3 s)" in result.output
 
 
+def test_search_marks_unknown_separate_tickets_and_failed_origins(monkeypatch):
+    snapshot = SNAPSHOT_A_B_C.model_copy(update={"failed_origins": {"EZE": "Kiwi respondió 500"}})
+    monkeypatch.setattr(cli, "engine_factory", lambda home: StaticEngine(snapshot))
+    out = CliRunner().invoke(cli.app, ARGS).output
+    assert "No se pudo verificar si son pasajes separados" in out
+    assert "No se pudo consultar Vía Ezeiza: Kiwi respondió 500" in out
+
+
 def test_search_json_is_a_snapshot(monkeypatch):
     monkeypatch.setattr(cli, "engine_factory", lambda home: StaticEngine(SNAPSHOT_A_B_C))
     out = CliRunner().invoke(cli.app, [*ARGS, "--json"]).output

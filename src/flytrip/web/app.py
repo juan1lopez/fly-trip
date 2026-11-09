@@ -42,6 +42,7 @@ def _environment() -> Environment:
         baggage_label=views.baggage_label,
         age_label=views.age_label,
         source_names=views.SOURCE_NAMES,
+        unknown_separate=views.UNKNOWN_SEPARATE,
     )
     return env
 

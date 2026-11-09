@@ -13,6 +13,7 @@ ORIGIN_LABELS = {
 }
 
 SOURCE_NAMES = {"kiwi": "Kiwi", "google": "Google Flights"}
+UNKNOWN_SEPARATE = "No se pudo verificar si son pasajes separados"
 
 
 def origin_label(code: str) -> str:
@@ -59,6 +60,8 @@ def status_label(status: SourceStatus) -> str:
         case "ok":
             seconds = f"{(status.latency_ms or 0) / 1000:.1f}".replace(".", ",")
             return f"{name}: OK ({status.count} en {seconds} s)"
+        case "partial":
+            return f"{name}: parcial — {status.detail}"
         case "paused":
             return f"{name}: en pausa — {status.detail}"
         case "error":

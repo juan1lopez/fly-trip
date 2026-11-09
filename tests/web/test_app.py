@@ -130,3 +130,30 @@ def test_settings_saved_in_ajustes_reach_the_running_engine_and_its_cache(tmp_pa
         data={"traslado_SCL_costo": "80", "traslado_SCL_horas": "7", "usd_por_hora": "10"},
     )
     assert "758 + 80 traslado" in _results(client)
+
+
+def test_failed_origin_card_says_it_could_not_be_queried(settings_store):
+    from fastapi.testclient import TestClient
+
+    from flytrip.web.app import create_app
+    from tests.fakes import SNAPSHOT_A_B_C, StaticEngine
+
+    kept = tuple(i for i in SNAPSHOT_A_B_C.itineraries if i.origin != "EZE")
+    snapshot = SNAPSHOT_A_B_C.model_copy(
+        update={
+            "itineraries": kept,
+            "best_per_origin": {i.origin: i for i in kept} | {"EZE": None},
+            "failed_origins": {"EZE": "Kiwi respondió 500"},
+        }
+    )
+    app = create_app(engine_factory=lambda: StaticEngine(snapshot), settings_store=settings_store)
+    html = unescape(_results(TestClient(app)))
+    assert "No se pudo consultar este origen" in html and "Kiwi respondió 500" in html
+    assert "Sin resultados para este origen" not in html
+
+
+def test_unknown_separate_tickets_is_never_shown_like_a_single_ticket(client):
+    html = _results(client)
+    # A and C have an unknown flag, B is flagged as separate tickets.
+    assert html.count("No se pudo verificar si son pasajes separados") == 2
+    assert html.count("Pasajes separados: si pierdes") == 1
