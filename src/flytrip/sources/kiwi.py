@@ -17,9 +17,10 @@ KIWI_MAX_WINDOW_DAYS = 92
 # Con adults=2 el campo `price` ya es el total del grupo (ver docs/sources/kiwi.md).
 KIWI_PRICE_IS_TOTAL = True
 
-_HEADERS = {
+KIWI_HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
+    "User-Agent": "fly-trip/0.1 (uso personal)",
 }
 
 
@@ -223,7 +224,7 @@ class KiwiSource:
             )
             body = build_rpc_body(build_arguments(window), request_id=fetches + 1)
             try:
-                response = await self._client.post(self._url, json=body, headers=_HEADERS)
+                response = await self._client.post(self._url, json=body, headers=KIWI_HEADERS)
             except httpx.TransportError as exc:
                 return self._result("error", f"Kiwi no respondió ({type(exc).__name__})", fetches)
             fetches += 1
