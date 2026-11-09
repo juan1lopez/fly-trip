@@ -36,6 +36,9 @@ class FakeSource:
         return outcome
 
 
+# The only host the web app answers to (TrustedHostMiddleware); TestClient defaults to "testserver".
+LOCAL_URL = "http://127.0.0.1:8765"
+
 FLI_FIXTURES = Path(__file__).parent / "fixtures" / "google"
 
 

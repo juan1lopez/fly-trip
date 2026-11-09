@@ -15,7 +15,7 @@ en `uv run fly check`.
 
 ## Flujo de una búsqueda
 
-1. Kiwi explora: recorre fechas y destinos abiertos y devuelve candidatos baratos.
+1. Kiwi explora: recorre ventanas de fechas (de hasta 92 días cada una) y devuelve candidatos baratos.
 2. Los candidatos se reducen a los más prometedores.
 3. Google Flights confirma el precio y los horarios de esos candidatos.
 4. Fusión: se unen los resultados de ambas fuentes en un mismo modelo normalizado.
@@ -32,7 +32,7 @@ El spec es `docs/superpowers/specs/2026-11-09-buscador-vuelos-baratos-design.md`
 | 5.2 Traslado desde Mendoza | `core` (traslados) |
 | 5.3 Resultados | `core` (fusión, ranking), `web` |
 | 5.4 Avisos | `alerts` (hito posterior) |
-| 5.5 Ajustes y secretos | `.env.example`, `core` (ajustes) |
+| 5.5 Ajustes y secretos | `.env.example`, `engine` (`settings.py`) |
 | 5.6 Arranque y puesta en marcha | `Buscar vuelos.cmd`, `cli`, `docs/setup.md` |
 | 6 Modelo de datos normalizado | `core` (modelos) |
 | 7 Arquitectura propuesta | este documento, contratos de import-linter en `pyproject.toml` |

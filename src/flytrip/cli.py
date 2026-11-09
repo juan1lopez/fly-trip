@@ -27,7 +27,7 @@ from flytrip.engine.factory import build_engine
 from flytrip.engine.logs import configure_logging
 from flytrip.engine.paths import data_dir, home_dir, logs_dir
 from flytrip.engine.search import SearchEngine, SearchSnapshot, SnapshotEvent
-from flytrip.engine.settings import SettingsStore
+from flytrip.engine.settings import Settings, SettingsStore
 from flytrip.sources.base import PauseRegistry
 from flytrip.sources.kiwi import utc_now
 from flytrip.web.app import create_app
@@ -37,6 +37,7 @@ from flytrip.web.views import (
     baggage_label,
     format_short_date,
     format_usd,
+    missing_transfer_origins,
     origin_label,
     price_breakdown,
     route_label,
@@ -110,7 +111,7 @@ def _itinerary_row(index: int, it: Itinerary) -> tuple[str, ...]:
     )
 
 
-def _render(snapshot: SearchSnapshot) -> None:
+def _render(snapshot: SearchSnapshot, settings: Settings) -> None:
     console = Console() if sys.stdout.isatty() else Console(width=200, soft_wrap=False)
     table = Table(title=f"Pasajes a {escape(snapshot.query.destination)}")
     for column in (
@@ -132,6 +133,10 @@ def _render(snapshot: SearchSnapshot) -> None:
         console.print("⚠ = pasajes separados: si uno se demora, el otro no se protege.")
     if any(it.separate_tickets is None for it in snapshot.itineraries):
         console.print(f"? = {UNKNOWN_SEPARATE}.")
+    if missing_transfer_origins(snapshot.query.origins, settings.transfers):
+        console.print(
+            "Configura el traslado a Santiago/Ezeiza en Ajustes (fly web) para ver el total real."
+        )
     for origin, reason in snapshot.failed_origins.items():
         console.print(escape(f"No se pudo consultar {origin_label(origin)}: {reason}"))
     for status in snapshot.statuses.values():
@@ -206,7 +211,7 @@ def search(
     if as_json:
         typer.echo(snapshot.model_dump_json(indent=2))
     else:
-        _render(snapshot)
+        _render(snapshot, settings)
 
 
 @app.command()

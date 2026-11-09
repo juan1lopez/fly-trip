@@ -25,7 +25,7 @@ Se verifican con import-linter dentro de `fly check`:
 - `core`: modelos, ranking, fusión y traslados. Lógica pura, no importa nada del proyecto.
 - `sources`: Kiwi y Google Flights. Solo importa `core`.
 - `engine`: orquesta las fuentes. Importa `core` y `sources`.
-- `web` y `cli`: importan `engine` y `core`, nunca entre sí.
+- `web` importa `engine` y `core`, y nunca importa `cli`. `cli` importa `web`, `engine` y `core`.
 - `devtools`: herramientas de desarrollo; la app no las importa.
 
 ## Reglas de tests

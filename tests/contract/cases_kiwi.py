@@ -22,14 +22,12 @@ class _MockedKiwi:
 
     name = "kiwi"
 
-    def __init__(self, fixture_name: str) -> None:
-        self._fixture_name = fixture_name
+    def __init__(self, fixture_name: str | None = None, body: str | None = None) -> None:
+        self._body = body if body is not None else fixture("kiwi", str(fixture_name))
 
     async def search(self, request: SourceRequest):  # type: ignore[no-untyped-def]
         with respx.mock(assert_all_called=False) as router:
-            router.post(KIWI_URL).mock(
-                return_value=httpx.Response(200, text=fixture("kiwi", self._fixture_name))
-            )
+            router.post(KIWI_URL).mock(return_value=httpx.Response(200, text=self._body))
             async with httpx.AsyncClient() as client:
                 return await KiwiSource(client, clock=CLOCK).search(request)
 
@@ -51,3 +49,9 @@ KIWI_CASES: list[ContractCase] = [
     ContractCase(f"kiwi-{name}", _MockedKiwi(f"{name}.sse"), _request(origin), "ok")
     for name, origin in _ORIGINS.items()
 ]
+
+GARBLED_SSE = "event: message\ndata: {this is not json\n\ndata: [1, 2\n\n<html>captcha</html>\n"
+
+KIWI_CASES.append(
+    ContractCase("kiwi-garbled-sse", _MockedKiwi(body=GARBLED_SSE), _request("SCL"), "error")
+)

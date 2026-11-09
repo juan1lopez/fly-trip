@@ -256,3 +256,45 @@ def test_real_fli_client_makes_one_http_request_per_fetch():
     with pytest.raises(SearchClientError):
         client.search(build_filters(ONEWAY), top_n=1, currency="USD", language="es", country="AR")
     assert FailingSession.posts == 1
+
+
+def _synthetic_oneway_with(**leg_changes):
+    [result] = load_fli("synthetic_oneway.json")[:1]
+    leg = result.legs[0].model_copy(update=leg_changes)
+    return result.model_copy(update={"legs": [leg]})
+
+
+def _only(result):
+    [it] = normalize_results(
+        [result], origin="EZE", destination="MAD", adults=1, fetched_at=FETCHED
+    )
+    return it
+
+
+def test_airline_codes_lose_fli_enum_underscore_and_flight_numbers_are_normalized():
+    from fli.models import Airline
+
+    it = _only(_synthetic_oneway_with(airline=Airline._2Z, flight_number="2Z 0045"))
+    segment = it.outbound.segments[0]
+    assert (segment.carrier_code, segment.flight_number) == ("2Z", "45")
+    plain = _only(_synthetic_oneway_with(flight_number="AR 01132"))
+    assert plain.outbound.segments[0].flight_number == "1132"
+
+
+def test_same_flight_from_kiwi_and_google_gets_the_same_itinerary_id():
+    from flytrip.core.legs import build_leg, itinerary_id, normalize_flight_number
+    from flytrip.core.models import Segment
+
+    google = _only(_synthetic_oneway_with(flight_number="AR 01132"))
+    google_segment = google.outbound.segments[0]
+    kiwi_segment = Segment(
+        carrier_code="AR",
+        carrier_name="Aerolíneas Argentinas",
+        flight_number=normalize_flight_number("AR", "AR1132"),
+        from_airport=google_segment.from_airport,
+        to_airport=google_segment.to_airport,
+        departure_local=google_segment.departure_local,
+        arrival_local=google_segment.arrival_local,
+    )
+    kiwi_leg = build_leg([kiwi_segment], google.outbound.duration_minutes)
+    assert itinerary_id(kiwi_leg, None) == google.id

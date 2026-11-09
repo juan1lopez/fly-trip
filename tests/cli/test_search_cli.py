@@ -6,6 +6,8 @@ from typer.testing import CliRunner
 
 from flytrip import cli
 from flytrip.engine.search import SearchSnapshot
+from flytrip.engine.settings import Settings
+from tests.factories import T
 from tests.fakes import SNAPSHOT_A_B_C, StaticEngine
 
 ARGS = ["search", "MAD", "--desde", "2027-03-01", "--hasta", "2027-05-31", "--noches", "14-21"]
@@ -86,3 +88,13 @@ def test_cli_validation_uses_the_today_seam(monkeypatch):
     monkeypatch.setenv("FLYTRIP_TODAY", "2027-06-01")
     r = CliRunner().invoke(cli.app, ARGS)
     assert r.exit_code == 2 and "La fecha 'desde' tiene que ser posterior a hoy." in r.output
+
+
+def test_search_warns_when_a_transfer_is_not_configured(monkeypatch):
+    monkeypatch.setattr(cli, "engine_factory", lambda home: StaticEngine(SNAPSHOT_A_B_C))
+    out = CliRunner().invoke(cli.app, ARGS).output
+    assert "Configura el traslado a Santiago/Ezeiza en Ajustes" in out
+    configured = StaticEngine(SNAPSHOT_A_B_C)
+    configured.settings = Settings(transfers={"SCL": T("80", "7"), "EZE": T("200", "2")})
+    monkeypatch.setattr(cli, "engine_factory", lambda home: configured)
+    assert "Configura el traslado" not in CliRunner().invoke(cli.app, ARGS).output

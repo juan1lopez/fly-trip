@@ -6,12 +6,13 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from flytrip.core.models import TransferCost
 from flytrip.core.query import SearchQuery, today_for_validation, validate_query
@@ -22,8 +23,26 @@ from flytrip.web import views
 WEB_DIR = Path(__file__).parent
 TRANSFER_AIRPORTS = ("SCL", "EZE")
 ALL_ORIGINS = ("MDZ", "SCL", "EZE")
+LOCAL_HOSTS = ("127.0.0.1", "localhost")
+FOREIGN_ORIGIN = "Solicitud rechazada: el origen no es esta aplicación."
 SEARCH_FAILED = "La búsqueda falló por un error inesperado. Intenta de nuevo."
 log = logging.getLogger("flytrip.web")
+
+
+def _origin_is_local(request: Request) -> bool:
+    """A browser POST from another site carries its own Origin: only this server's is allowed."""
+    origin = request.headers.get("origin")
+    if origin is None:
+        return True  # not a browser form post (curl, tests)
+    try:
+        parts = urlsplit(origin)
+        return (
+            parts.scheme == "http"
+            and parts.hostname in LOCAL_HOSTS
+            and parts.port == request.url.port
+        )
+    except ValueError:
+        return False
 
 
 def _environment() -> Environment:
@@ -166,6 +185,8 @@ def create_app(
     *, engine_factory: Callable[[], SearchEngine], settings_store: SettingsStore
 ) -> FastAPI:
     app = FastAPI(title="fly-trip")
+    # Local-only app: refuse other Host headers (DNS rebinding).
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(LOCAL_HOSTS))
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
     env = _environment()
 
@@ -219,13 +240,22 @@ def create_app(
                         yield _sse("status", render("_status.html", statuses=statuses.values()))
                         yield _sse(
                             "results",
-                            render("_results.html", snapshot=snapshot, now=datetime.now(UTC)),
+                            render(
+                                "_results.html",
+                                snapshot=snapshot,
+                                now=datetime.now(UTC),
+                                transfers_missing=bool(
+                                    views.missing_transfer_origins(
+                                        query.origins, settings_store.load().transfers
+                                    )
+                                ),
+                            ),
                         )
             except Exception:
                 log.exception("La búsqueda falló")
                 yield _sse("error", render("_errors.html", errors=[SEARCH_FAILED]))
-            finally:
-                yield _sse("done", "")
+            # Not in a `finally`: a cancelled search (client gone) must not yield again.
+            yield _sse("done", "")
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
@@ -235,6 +265,8 @@ def create_app(
 
     @app.post("/ajustes", response_class=HTMLResponse)
     async def settings_post(request: Request) -> HTMLResponse:
+        if not _origin_is_local(request):
+            return HTMLResponse(FOREIGN_ORIGIN, status_code=403)
         current = settings_store.load()
         # Plain urlencoded parsing: avoids the python-multipart dependency.
         body = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)

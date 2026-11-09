@@ -1,9 +1,10 @@
 """Presentation helpers shared by the CLI and the web UI."""
 
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from flytrip.core.models import Baggage, Itinerary, Leg
+from flytrip.core.models import Baggage, Itinerary, Leg, TransferCost
 from flytrip.engine.search import SourceStatus
 
 ORIGIN_LABELS = {
@@ -52,6 +53,13 @@ def price_breakdown(it: Itinerary, home_airport: str = "MDZ") -> str:
     if it.origin == home_airport:
         return price
     return f"{price} + traslado (sin configurar)"
+
+
+def missing_transfer_origins(
+    origins: Iterable[str], transfers: Mapping[str, TransferCost | None], home_airport: str = "MDZ"
+) -> list[str]:
+    """Origins away from home whose transfer is not configured (their total is incomplete)."""
+    return [o for o in origins if o != home_airport and transfers.get(o) is None]
 
 
 def status_label(status: SourceStatus) -> str:

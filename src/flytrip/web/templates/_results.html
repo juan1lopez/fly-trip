@@ -21,6 +21,9 @@
 </div>
 {% endmacro %}
 
+{% if transfers_missing %}
+<p class="warning">Configura el traslado a Santiago/Ezeiza en <a href="/ajustes">Ajustes</a> para ver el total real.</p>
+{% endif %}
 <h2>Lo mejor por origen</h2>
 <div class="origin-cards">
 {% for code in snapshot.query.origins %}

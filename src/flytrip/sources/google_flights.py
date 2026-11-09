@@ -26,7 +26,7 @@ from fli.search import (
 from fli.search.client import Client
 from fli.search.flights import SearchParseError
 
-from flytrip.core.legs import build_leg, itinerary_id
+from flytrip.core.legs import build_leg, itinerary_id, normalize_flight_number
 from flytrip.core.models import Itinerary, Offer, Segment
 from flytrip.sources.base import BLOCK_PAUSE_MINUTES, SourceBlocked, SourceRequest, SourceResult
 
@@ -143,19 +143,27 @@ def google_search_url(origin: str, destination: str, depart: date, return_date: 
     return f"https://www.google.com/travel/flights?q={quote(query)}&curr=USD&hl=es"
 
 
+def _carrier_code(name: str) -> str:
+    """fli's enum member names start with "_" when the IATA code starts with a digit ("_2Z")."""
+    return name.removeprefix("_")
+
+
 def _segments(result: FlightResult) -> list[Segment]:
-    return [
-        Segment(
-            carrier_code=leg.airline.name,
-            carrier_name=leg.airline.value,
-            flight_number=leg.flight_number,
-            from_airport=leg.departure_airport.name,
-            to_airport=leg.arrival_airport.name,
-            departure_local=leg.departure_datetime,
-            arrival_local=leg.arrival_datetime,
+    segments = []
+    for leg in result.legs:
+        code = _carrier_code(leg.airline.name)
+        segments.append(
+            Segment(
+                carrier_code=code,
+                carrier_name=leg.airline.value,
+                flight_number=normalize_flight_number(code, leg.flight_number),
+                from_airport=leg.departure_airport.name,
+                to_airport=leg.arrival_airport.name,
+                departure_local=leg.departure_datetime,
+                arrival_local=leg.arrival_datetime,
+            )
         )
-        for leg in result.legs
-    ]
+    return segments
 
 
 def _separate_tickets(parts: tuple[FlightResult, ...]) -> bool | None:

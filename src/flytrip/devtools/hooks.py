@@ -4,13 +4,27 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _inside_project(path: str, cwd: object) -> bool:
+    """Only files of this repository get formatted (not scratch files or other projects)."""
+    base = Path(cwd) if isinstance(cwd, str) and cwd else PROJECT_ROOT
+    try:
+        return (base / path).resolve().is_relative_to(PROJECT_ROOT)
+    except OSError:
+        return False
 
 
 def post_edit_commands(payload: dict[str, Any]) -> list[list[str]]:
     """Commands to run after an edit tool touched a file (only Python files)."""
     path = (payload.get("tool_input") or {}).get("file_path")
     if not isinstance(path, str) or not path.endswith(".py"):
+        return []
+    if not _inside_project(path, payload.get("cwd")):
         return []
     return [
         ["uv", "run", "ruff", "format", path],
@@ -66,7 +80,8 @@ def main(argv: list[str]) -> int:
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(errors="replace")
     try:
-        payload = json.load(sys.stdin)
+        # Never the text layer: on Windows it decodes with the code page, not UTF-8.
+        payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
     except json.JSONDecodeError:
         payload = {}
     return run_post_edit(payload) if argv[0] == "post-edit" else run_stop(payload)

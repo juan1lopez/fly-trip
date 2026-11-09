@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from flytrip.engine.search import SearchSnapshot
 from flytrip.engine.settings import SettingsStore
 from flytrip.web.app import create_app
-from tests.fakes import SNAPSHOT_A_B_C, StaticEngine
+from tests.fakes import LOCAL_URL, SNAPSHOT_A_B_C, StaticEngine
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def settings_store(tmp_path: Path) -> SettingsStore:
 
 def _client(snapshot: SearchSnapshot, store: SettingsStore) -> TestClient:
     app = create_app(engine_factory=lambda: StaticEngine(snapshot), settings_store=store)
-    return TestClient(app)
+    return TestClient(app, base_url=LOCAL_URL)
 
 
 @pytest.fixture

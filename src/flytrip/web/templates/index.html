@@ -3,8 +3,8 @@
 {% block content %}
 <h1>Buscar pasajes baratos</h1>
 <form id="search-form" action="/buscar/stream" method="get">
-  <label>Destino (código IATA)
-    <input name="destino" value="" maxlength="3" placeholder="MAD" required>
+  <label>Destino
+    <input name="destino" value="" placeholder="Código IATA o ciudad" required>
   </label>
   <label>Salir desde <input type="date" name="desde" required></label>
   <label>Salir hasta <input type="date" name="hasta" required></label>

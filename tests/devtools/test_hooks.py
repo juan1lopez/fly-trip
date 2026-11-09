@@ -1,4 +1,5 @@
 import io
+import json
 import subprocess
 import sys
 
@@ -84,9 +85,45 @@ def test_run_stop_passes(monkeypatch):
 
 def test_main_survives_invalid_json(monkeypatch):
     calls = _fake_runner(monkeypatch, [_completed(0)])
-    monkeypatch.setattr(sys, "stdin", io.StringIO("not json"))
+    monkeypatch.setattr(sys, "stdin", _stdin(b"not json"))
     assert hooks.main(["stop"]) == 0
     assert len(calls) == 1
+
+
+def _stdin(raw: bytes, encoding: str = "cp1252") -> io.TextIOWrapper:
+    """A stdin whose text layer uses the Windows code page, like a console would."""
+    return io.TextIOWrapper(io.BytesIO(raw), encoding=encoding)
+
+
+def test_main_reads_the_payload_as_utf8_whatever_the_console_encoding(monkeypatch):
+    seen: list[dict] = []
+    monkeypatch.setattr(hooks, "run_post_edit", lambda payload: seen.append(payload) or 0)
+    raw = json.dumps({"tool_input": {"file_path": "señal.py"}}, ensure_ascii=False).encode()
+    monkeypatch.setattr(sys, "stdin", _stdin(raw))
+    assert hooks.main(["post-edit"]) == 0
+    assert seen == [{"tool_input": {"file_path": "señal.py"}}]
+
+
+def test_main_survives_bytes_that_are_not_utf8(monkeypatch):
+    calls = _fake_runner(monkeypatch, [_completed(0)])
+    monkeypatch.setattr(sys, "stdin", _stdin(bytes([0xFF, 0xFE, 0x7B])))
+    assert hooks.main(["stop"]) == 0
+    assert len(calls) == 1
+
+
+def test_post_edit_ignores_python_files_outside_the_project(tmp_path):
+    outside = {"tool_input": {"file_path": str(tmp_path / "scratch.py")}}
+    assert post_edit_commands(outside) == []
+    relative = {"cwd": str(tmp_path), "tool_input": {"file_path": "scratch.py"}}
+    assert post_edit_commands(relative) == []
+    escaping = {"tool_input": {"file_path": "../elsewhere/scratch.py"}}
+    assert post_edit_commands(escaping) == []
+
+
+def test_post_edit_formats_absolute_paths_inside_the_project():
+    inside = str(hooks.PROJECT_ROOT / "src" / "flytrip" / "core" / "models.py")
+    commands = post_edit_commands({"tool_input": {"file_path": inside}})
+    assert commands[0] == ["uv", "run", "ruff", "format", inside]
 
 
 def test_main_rejects_unknown_mode():

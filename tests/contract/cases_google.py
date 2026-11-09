@@ -1,6 +1,7 @@
 from datetime import date
 
 from fli.search import SearchHTTPError
+from fli.search.flights import SearchParseError
 
 from flytrip.sources.base import SourceRequest
 from flytrip.sources.google_flights import GoogleFlightsSource
@@ -50,6 +51,12 @@ GOOGLE_CASES: list[ContractCase] = [
         _source(FakeFli(raises=SearchHTTPError("x", status_code=429))),
         _EXACT,
         "paused",
+    ),
+    ContractCase(
+        "google-malformed-response",
+        _source(FakeFli(raises=SearchParseError("shape changed"))),
+        _EXACT,
+        "error",
     ),
     ContractCase("google-window-is-error", _source(FakeFli(None)), REQ, "error"),
 ]

@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from flytrip.cli import find_free_port, make_web_app
 from flytrip.engine.settings import SettingsStore
-from tests.fakes import SNAPSHOT_A_B_C, StaticEngine
+from tests.fakes import LOCAL_URL, SNAPSHOT_A_B_C, StaticEngine
 
 ROOT = Path(__file__).resolve().parents[2]
 URL = (
@@ -47,7 +47,7 @@ def test_web_app_reuses_one_engine_across_requests(tmp_path):
 
     engine.run = spy  # type: ignore[method-assign]
     app = make_web_app(engine, SettingsStore(tmp_path / "settings.json"))
-    with TestClient(app) as client:
+    with TestClient(app, base_url=LOCAL_URL) as client:
         assert client.get(URL).status_code == 200
         assert client.get(URL).status_code == 200
     assert len(calls) == 2 and calls[0] is calls[1] is engine

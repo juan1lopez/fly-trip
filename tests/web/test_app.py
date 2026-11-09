@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from html import unescape
 
 from tests.factories import T
+from tests.fakes import LOCAL_URL
 from tests.web.conftest import sse_events
 
 QS = (
@@ -84,7 +85,7 @@ def test_validate_never_runs_a_search(settings_store):
 
     engine.run = recording  # type: ignore[method-assign]
     app = create_app(engine_factory=lambda: engine, settings_store=settings_store)
-    assert TestClient(app).get("/buscar/validar?" + QS).status_code == 204
+    assert TestClient(app, base_url=LOCAL_URL).get("/buscar/validar?" + QS).status_code == 204
     assert runs == []
 
 
@@ -100,7 +101,7 @@ def test_engine_failure_emits_error_then_done(settings_store):
             yield
 
     app = create_app(engine_factory=lambda: Broken(SNAPSHOT_A_B_C), settings_store=settings_store)
-    events = sse_events(TestClient(app), "/buscar/stream?" + QS)
+    events = sse_events(TestClient(app, base_url=LOCAL_URL), "/buscar/stream?" + QS)
     assert [name for name, _ in events] == ["error", "done"]
     assert "La búsqueda falló por un error inesperado. Intenta de nuevo." in events[0][1]
     assert "secret" not in events[0][1]
@@ -123,7 +124,10 @@ def test_settings_saved_in_ajustes_reach_the_running_engine_and_its_cache(tmp_pa
         google=FakeSource("google", google_answer()),
         settings=settings_store.load,
     )
-    client = TestClient(create_app(engine_factory=lambda: engine, settings_store=settings_store))
+    client = TestClient(
+        create_app(engine_factory=lambda: engine, settings_store=settings_store),
+        base_url=LOCAL_URL,
+    )
     assert "758 + traslado (sin configurar)" in _results(client)
     client.post(
         "/ajustes",
@@ -147,7 +151,7 @@ def test_failed_origin_card_says_it_could_not_be_queried(settings_store):
         }
     )
     app = create_app(engine_factory=lambda: StaticEngine(snapshot), settings_store=settings_store)
-    html = unescape(_results(TestClient(app)))
+    html = unescape(_results(TestClient(app, base_url=LOCAL_URL)))
     assert "No se pudo consultar este origen" in html and "Kiwi respondió 500" in html
     assert "Sin resultados para este origen" not in html
 
@@ -175,7 +179,7 @@ def _recording_app(settings_store, snapshot):
 
     engine.run = recording  # type: ignore[method-assign]
     app = create_app(engine_factory=lambda: engine, settings_store=settings_store)
-    return TestClient(app), uses
+    return TestClient(app, base_url=LOCAL_URL), uses
 
 
 def test_refrescar_bypasses_the_cache_and_plain_search_uses_it(settings_store):
@@ -198,7 +202,7 @@ def test_refresh_button_only_appears_on_cached_results(settings_store):
         app = create_app(
             engine_factory=lambda: StaticEngine(snapshot), settings_store=settings_store
         )
-        return _results(TestClient(app))
+        return _results(TestClient(app, base_url=LOCAL_URL))
 
     cached = SNAPSHOT_A_B_C.model_copy(update={"from_cache": True, "cache_age_minutes": 12})
     assert 'id="refresh"' in results(cached) and "Actualizar" in results(cached)
@@ -210,3 +214,77 @@ def test_web_validation_uses_the_today_seam(client, monkeypatch):
     r = client.get("/buscar/validar?" + QS)
     assert r.status_code == 422
     assert "La fecha 'desde' tiene que ser posterior a hoy." in unescape(r.text)
+
+
+def test_done_is_not_sent_when_the_search_is_cancelled(settings_store):
+    import asyncio
+
+    from fastapi.testclient import TestClient
+
+    from flytrip.web.app import create_app
+    from tests.fakes import SNAPSHOT_A_B_C, StaticEngine
+
+    class Cancelled(StaticEngine):
+        async def run(self, query, *, use_cache=True):
+            raise asyncio.CancelledError
+            yield
+
+    app = create_app(
+        engine_factory=lambda: Cancelled(SNAPSHOT_A_B_C), settings_store=settings_store
+    )
+    body = TestClient(app, base_url=LOCAL_URL).get("/buscar/stream?" + QS).text
+    assert "event: done" not in body and "event: error" not in body
+
+
+BANNER = "Configura el traslado a Santiago/Ezeiza en"
+
+
+def test_banner_asks_for_transfers_only_when_an_origin_lacks_one(client):
+    html = _results(client)
+    assert BANNER in html and 'href="/ajustes"' in html
+    only_home = QS.replace("&origenes=SCL&origenes=EZE", "")
+    assert BANNER not in _results(client, only_home)
+    client.post(
+        "/ajustes",
+        data={
+            "traslado_SCL_costo": "80",
+            "traslado_SCL_horas": "7",
+            "traslado_EZE_costo": "200",
+            "traslado_EZE_horas": "2",
+            "usd_por_hora": "10",
+        },
+    )
+    assert BANNER not in _results(client)
+
+
+def test_destination_accepts_an_iata_code_or_a_city(client):
+    html = client.get("/").text
+    assert 'placeholder="Código IATA o ciudad"' in html
+    assert 'name="destino" value="" maxlength' not in html and 'maxlength="3"' not in html
+
+
+SETTINGS_FORM = {"traslado_SCL_costo": "80", "traslado_SCL_horas": "7", "usd_por_hora": "10"}
+
+
+def test_requests_for_other_hosts_are_rejected(client):
+    assert client.get("/", headers={"Host": "evil.example"}).status_code == 400
+    assert client.get("/", headers={"Host": "localhost:8765"}).status_code == 200
+
+
+def test_settings_post_from_a_foreign_origin_is_rejected(client, settings_store):
+    for origin in (
+        "http://evil.example",
+        "http://127.0.0.1:9999",
+        "null",
+        "https://127.0.0.1:8765",
+    ):
+        r = client.post("/ajustes", data=SETTINGS_FORM, headers={"Origin": origin})
+        assert r.status_code == 403, origin
+    assert settings_store.load().transfers["SCL"] is None
+
+
+def test_settings_post_from_the_local_origin_is_accepted(client, settings_store):
+    for origin in (LOCAL_URL, "http://localhost:8765"):
+        r = client.post("/ajustes", data=SETTINGS_FORM, headers={"Origin": origin})
+        assert r.status_code == 200, origin
+    assert settings_store.load().transfers["SCL"] == T("80", "7")
