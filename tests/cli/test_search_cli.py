@@ -44,3 +44,25 @@ def test_search_output_survives_cp1252(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
     assert b"UnicodeEncodeError" not in proc.stderr
+
+
+def test_search_requires_exactly_one_of_nights_or_one_way(monkeypatch):
+    monkeypatch.setattr(cli, "engine_factory", lambda home: StaticEngine(SNAPSHOT_A_B_C))
+    base = ["search", "MAD", "--desde", "2027-03-01", "--hasta", "2027-05-31"]
+    neither = CliRunner().invoke(cli.app, base)
+    assert neither.exit_code == 2
+    assert "Indica noches mínimas y máximas, o marca solo ida." in neither.output
+    both = CliRunner().invoke(cli.app, [*base, "--noches", "14-21", "--solo-ida"])
+    assert both.exit_code == 2 and "Usa --noches o --solo-ida, no los dos." in both.output
+
+
+def test_search_without_snapshot_exits_1_in_spanish(monkeypatch):
+    class EmptyEngine(StaticEngine):
+        async def run(self, query, *, use_cache=True):
+            return
+            yield
+
+    monkeypatch.setattr(cli, "engine_factory", lambda home: EmptyEngine(SNAPSHOT_A_B_C))
+    r = CliRunner().invoke(cli.app, ARGS)
+    assert r.exit_code == 1 and "La búsqueda terminó sin resultados." in r.output
+    assert "Traceback" not in r.output
