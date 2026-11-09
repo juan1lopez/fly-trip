@@ -4,10 +4,8 @@ import json
 from datetime import date
 from pathlib import Path
 
-from fli.search import SearchFlights
-
 from flytrip.sources.base import SourceRequest
-from flytrip.sources.google_flights import build_filters
+from flytrip.sources.google_flights import FliClient, RealFliClient, build_filters
 
 
 def record_google(
@@ -18,6 +16,7 @@ def record_google(
     nights: int | None,
     adults: int,
     out_dir: Path,
+    client: FliClient | None = None,
 ) -> Path:
     request = SourceRequest(
         origin=origin,
@@ -30,7 +29,11 @@ def record_google(
         allow_separate_tickets=True,
     )
     filters = build_filters(request)
-    raw = SearchFlights().search(filters, top_n=1, currency="USD", language="es", country="AR")
+    raw = (client or RealFliClient()).search(
+        filters, top_n=1, currency="USD", language="es", country="AR"
+    )
+    if not raw:
+        raise RuntimeError("Google Flights no devolvió resultados; no se sobrescribe el fixture")
     payload = [
         [r.model_dump(mode="json") for r in item]
         if isinstance(item, tuple)

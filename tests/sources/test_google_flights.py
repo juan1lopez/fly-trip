@@ -7,6 +7,7 @@ from fli.models import SortBy, TripType
 from fli.search import SearchConnectionError, SearchHTTPError, SearchTimeoutError
 from fli.search.flights import SearchParseError
 
+from flytrip.sources import google_flights
 from flytrip.sources.base import PauseRegistry, SourceRequest, run_safely
 from flytrip.sources.google_flights import (
     GOOGLE_PRICE_IS_TOTAL,
@@ -111,7 +112,7 @@ def test_priceless_results_are_dropped():
     "name,origin,destination",
     [("madrid_scl_rt.json", "SCL", "MAD"), ("madrid_eze_oneway.json", "EZE", "MAD")],
 )
-def test_normalize_recorded_fixtures(name, origin, destination):
+def test_normalize_scenario_fixtures(name, origin, destination):
     items = normalize_results(
         load_fli(name), origin=origin, destination=destination, adults=1, fetched_at=FETCHED
     )
@@ -119,13 +120,44 @@ def test_normalize_recorded_fixtures(name, origin, destination):
     assert all(it.offers[0].booking_url.startswith("https://") for it in items)
 
 
-def test_two_adults_price_is_total():
-    raw = load_fli("madrid_scl_rt_2adults.json")
-    [first, *_] = normalize_results(
-        raw, origin="SCL", destination="MAD", adults=2, fetched_at=FETCHED
-    )
-    expected = Decimal(str(verified_total_price(raw[0])))
-    assert first.price_usd == (expected if GOOGLE_PRICE_IS_TOTAL else expected * 2)
+@pytest.mark.parametrize("is_total,factor", [(True, 1), (False, 2)])
+def test_adults_price_follows_total_constant(monkeypatch, is_total, factor):
+    monkeypatch.setattr(google_flights, "GOOGLE_PRICE_IS_TOTAL", is_total)
+    raw = load_fli("synthetic_rt.json")
+    [it] = normalize_results(raw, origin="SCL", destination="MAD", adults=2, fetched_at=FETCHED)
+    assert it.price_usd == Decimal(str(verified_total_price(raw[0]))) * factor
+
+
+def test_round_trip_separate_tickets_true_if_any_part_is():
+    out, back = load_fli("synthetic_rt.json")[0]
+    raw = [(out, back.model_copy(update={"self_transfer": True}))]
+    [it] = normalize_results(raw, origin="SCL", destination="MAD", adults=1, fetched_at=FETCHED)
+    assert it.separate_tickets is True
+
+
+def test_round_trip_separate_tickets_unknown_when_no_flags():
+    out, back = load_fli("synthetic_rt.json")[0]
+    raw = [
+        (
+            out.model_copy(update={"self_transfer": None}),
+            back.model_copy(update={"self_transfer": None}),
+        )
+    ]
+    [it] = normalize_results(raw, origin="SCL", destination="MAD", adults=1, fetched_at=FETCHED)
+    assert it.separate_tickets is None
+
+
+@pytest.mark.live
+async def test_live_two_adults_price_is_total():
+    from flytrip.sources.google_flights import RealFliClient
+
+    one = await GoogleFlightsSource(RealFliClient()).search(PAIR)
+    two = await GoogleFlightsSource(RealFliClient()).search(replace(PAIR, adults=2))
+    assert one.itineraries and two.itineraries, "Google no devolvió resultados"
+    ratio = two.itineraries[0].price_usd / one.itineraries[0].price_usd
+    # If Google reports the total for 2 adults, it is about double the 1-adult price.
+    # The source then keeps it as is (GOOGLE_PRICE_IS_TOTAL=True) and the ratio is ~2.
+    assert (ratio > Decimal("1.8")) == GOOGLE_PRICE_IS_TOTAL
 
 
 async def test_search_ok_counts_fetches_and_uses_fixed_params():
