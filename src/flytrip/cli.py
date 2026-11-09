@@ -13,10 +13,12 @@ from flytrip.core.query import SearchQuery, today_in_mendoza, validate_query
 from flytrip.devtools.check import build_check_steps, run_check_steps
 from flytrip.devtools.demo import build_demo_engine
 from flytrip.devtools.record import record_app
+from flytrip.engine.doctor import run_doctor
 from flytrip.engine.factory import build_engine
 from flytrip.engine.logs import configure_logging
-from flytrip.engine.paths import home_dir, logs_dir
+from flytrip.engine.paths import data_dir, home_dir, logs_dir
 from flytrip.engine.search import SearchEngine, SearchSnapshot, SnapshotEvent
+from flytrip.sources.base import PauseRegistry
 from flytrip.sources.kiwi import utc_now
 from flytrip.web.views import (
     format_short_date,
@@ -182,3 +184,28 @@ def search(
         typer.echo(snapshot.model_dump_json(indent=2))
     else:
         _render(snapshot)
+
+
+@app.command()
+def doctor() -> None:
+    """Comprueba que Kiwi y Google Flights responden con datos válidos."""
+    home = home_dir()
+    engine = engine_factory(home)
+    health = asyncio.run(
+        run_doctor(
+            engine.kiwi,
+            engine.google,
+            today=today_in_mendoza(utc_now()),
+            pauses=PauseRegistry(data_dir(home) / "pauses.json", utc_now),
+            clock=utc_now,
+        )
+    )
+    table = Table(title="Estado de las fuentes")
+    table.add_column("Fuente")
+    table.add_column("Estado")
+    table.add_column("Detalle")
+    for h in health:
+        mark = "[green]✓[/green]" if h.ok else "[red]✗[/red]"
+        table.add_row(SOURCE_NAMES.get(h.source, h.source), mark, escape(h.detail))
+    Console().print(table)
+    raise typer.Exit(code=0 if all(h.ok for h in health) else 1)
