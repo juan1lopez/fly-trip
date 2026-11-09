@@ -1,3 +1,8 @@
+import io
+import subprocess
+import sys
+
+from flytrip.devtools import hooks
 from flytrip.devtools.hooks import post_edit_commands, should_run_stop_check, summarize_failure
 
 
@@ -23,3 +28,72 @@ def test_summarize_keeps_last_lines():
     out = "\n".join(f"line {i}" for i in range(100))
     expected = [f"line {i}" for i in range(60, 100)]
     assert summarize_failure(out, max_lines=40).splitlines() == expected
+
+
+def _completed(returncode: int, stdout: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess([], returncode, stdout, "")
+
+
+def _fake_runner(monkeypatch, results):
+    calls: list[list[str]] = []
+
+    def fake(argv):
+        calls.append(argv)
+        return results.pop(0)
+
+    monkeypatch.setattr(hooks, "_run", fake)
+    return calls
+
+
+EDIT = {"tool_name": "Edit", "tool_input": {"file_path": "a.py"}}
+
+
+def test_run_post_edit_fails_with_ruff_errors(monkeypatch, capsys):
+    calls = _fake_runner(monkeypatch, [_completed(0), _completed(1, "E501 too long")])
+    assert hooks.run_post_edit(EDIT) == 2
+    assert len(calls) == 2
+    assert "E501 too long" in capsys.readouterr().err
+
+
+def test_run_post_edit_clean_returns_zero(monkeypatch, capsys):
+    _fake_runner(monkeypatch, [_completed(0), _completed(0)])
+    assert hooks.run_post_edit(EDIT) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_run_stop_skips_check_when_hook_active(monkeypatch):
+    calls = _fake_runner(monkeypatch, [])
+    assert hooks.run_stop({"stop_hook_active": True}) == 0
+    assert calls == []
+
+
+def test_run_stop_reports_failure(monkeypatch, capsys):
+    out = "\n".join(f"line {i}" for i in range(100))
+    calls = _fake_runner(monkeypatch, [_completed(1, out)])
+    assert hooks.run_stop({}) == 2
+    assert calls == [["uv", "run", "fly", "check", "--fast"]]
+    err = capsys.readouterr().err
+    assert "line 99" in err
+    assert "line 0\n" not in err
+
+
+def test_run_stop_passes(monkeypatch):
+    _fake_runner(monkeypatch, [_completed(0, "ok")])
+    assert hooks.run_stop({}) == 0
+
+
+def test_main_survives_invalid_json(monkeypatch):
+    calls = _fake_runner(monkeypatch, [_completed(0)])
+    monkeypatch.setattr(sys, "stdin", io.StringIO("not json"))
+    assert hooks.main(["stop"]) == 0
+    assert len(calls) == 1
+
+
+def test_main_rejects_unknown_mode():
+    assert hooks.main(["nope"]) == 1
+
+
+def test_run_decodes_utf8_output():
+    code = "import sys; sys.stdout.buffer.write('\\u2713 ok'.encode('utf-8'))"
+    result = hooks._run([sys.executable, "-c", code])
+    assert result.stdout == "✓ ok"
