@@ -148,16 +148,25 @@ def test_round_trip_separate_tickets_unknown_when_no_flags():
 
 
 @pytest.mark.live
-async def test_live_two_adults_price_is_total():
+def test_live_two_adults_price_is_total():
     from flytrip.sources.google_flights import RealFliClient
 
-    one = await GoogleFlightsSource(RealFliClient()).search(PAIR)
-    two = await GoogleFlightsSource(RealFliClient()).search(replace(PAIR, adults=2))
-    assert one.itineraries and two.itineraries, "Google no devolvió resultados"
-    ratio = two.itineraries[0].price_usd / one.itineraries[0].price_usd
-    # If Google reports the total for 2 adults, it is about double the 1-adult price.
-    # The source then keeps it as is (GOOGLE_PRICE_IS_TOTAL=True) and the ratio is ~2.
-    assert (ratio > Decimal("1.8")) == GOOGLE_PRICE_IS_TOTAL
+    client = RealFliClient()
+    kwargs = {"top_n": 1, "currency": "USD", "language": "es", "country": "AR"}
+    raw1 = client.search(build_filters(PAIR), **kwargs)
+    raw2 = client.search(build_filters(replace(PAIR, adults=2)), **kwargs)
+    if not raw1 or not raw2:
+        pytest.skip("Google no devolvió resultados (posible bloqueo); no se puede verificar")
+    price1 = Decimal(str(verified_total_price(raw1[0])))
+    price2 = Decimal(str(verified_total_price(raw2[0])))
+    ratio = price2 / price1
+    if abs(ratio - 2) <= Decimal("0.3"):
+        observed_total = True
+    elif abs(ratio - 1) <= Decimal("0.15"):
+        observed_total = False
+    else:
+        pytest.fail(f"Relación de precios inesperada para 2 adultos: {ratio}")
+    assert observed_total == GOOGLE_PRICE_IS_TOTAL
 
 
 async def test_search_ok_counts_fetches_and_uses_fixed_params():

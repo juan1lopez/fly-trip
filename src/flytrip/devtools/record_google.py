@@ -38,7 +38,7 @@ def record_google(
         [r.model_dump(mode="json") for r in item]
         if isinstance(item, tuple)
         else item.model_dump(mode="json")
-        for item in (raw or [])
+        for item in raw
     ]
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{scenario}.json"
