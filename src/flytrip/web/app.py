@@ -1,5 +1,6 @@
 """FastAPI app: search form, live results over SSE, and settings."""
 
+import logging
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
@@ -8,7 +9,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -21,6 +22,8 @@ from flytrip.web import views
 WEB_DIR = Path(__file__).parent
 TRANSFER_AIRPORTS = ("SCL", "EZE")
 ALL_ORIGINS = ("MDZ", "SCL", "EZE")
+SEARCH_FAILED = "La búsqueda falló por un error inesperado. Intenta de nuevo."
+log = logging.getLogger("flytrip.web")
 
 
 def _environment() -> Environment:
@@ -178,31 +181,49 @@ def create_app(
         settings = settings_store.load()
         return render("index.html", settings=settings, all_origins=ALL_ORIGINS)
 
-    @app.get("/buscar/stream", response_model=None)
-    async def search_stream(request: Request) -> StreamingResponse | HTMLResponse:
+    def check(
+        request: Request,
+    ) -> tuple[SearchEngine, SearchQuery | None, list[str]]:
         engine = engine_factory()
-        now = datetime.now(UTC)
         query, errors = _parse_query(request.query_params)
         if query is not None:
-            errors = validate_query(query, today_in_mendoza(now), engine.max_window_days)
+            today = today_in_mendoza(datetime.now(UTC))
+            errors = validate_query(query, today, engine.max_window_days)
+        return engine, query, errors
+
+    @app.get("/buscar/validar", response_model=None)
+    async def search_validate(request: Request) -> Response:
+        _, _, errors = check(request)
+        if errors:
+            return HTMLResponse(render("_errors.html", errors=errors), status_code=422)
+        return Response(status_code=204)
+
+    @app.get("/buscar/stream", response_model=None)
+    async def search_stream(request: Request) -> StreamingResponse | HTMLResponse:
+        engine, query, errors = check(request)
         if query is None or errors:
             return HTMLResponse(render("_errors.html", errors=errors), status_code=422)
 
         async def events() -> AsyncIterator[str]:
             statuses: dict[str, SourceStatus] = {}
-            async for event in engine.run(query):
-                if isinstance(event, StatusEvent):
-                    statuses[event.status.source] = event.status
-                    yield _sse("status", render("_status.html", statuses=statuses.values()))
-                elif isinstance(event, SnapshotEvent):
-                    snapshot = event.snapshot
-                    statuses.update(snapshot.statuses)
-                    yield _sse("status", render("_status.html", statuses=statuses.values()))
-                    yield _sse(
-                        "results",
-                        render("_results.html", snapshot=snapshot, now=datetime.now(UTC)),
-                    )
-            yield _sse("done", "")
+            try:
+                async for event in engine.run(query):
+                    if isinstance(event, StatusEvent):
+                        statuses[event.status.source] = event.status
+                        yield _sse("status", render("_status.html", statuses=statuses.values()))
+                    elif isinstance(event, SnapshotEvent):
+                        snapshot = event.snapshot
+                        statuses.update(snapshot.statuses)
+                        yield _sse("status", render("_status.html", statuses=statuses.values()))
+                        yield _sse(
+                            "results",
+                            render("_results.html", snapshot=snapshot, now=datetime.now(UTC)),
+                        )
+            except Exception:
+                log.exception("La búsqueda falló")
+                yield _sse("error", render("_errors.html", errors=[SEARCH_FAILED]))
+            finally:
+                yield _sse("done", "")
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
