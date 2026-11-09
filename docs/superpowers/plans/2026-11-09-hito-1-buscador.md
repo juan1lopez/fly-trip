@@ -125,17 +125,26 @@ Valores fijos:
 ```python
 from flytrip.devtools.check import CheckStep, build_check_steps, run_check_steps
 
+
 def test_fast_steps_skip_e2e_and_live():
     steps = build_check_steps(fast=True)
-    assert [s.name for s in steps] == ["ruff format", "ruff lint", "mypy", "import-linter", "pytest"]
+    assert [s.name for s in steps] == [
+        "ruff format",
+        "ruff lint",
+        "mypy",
+        "import-linter",
+        "pytest",
+    ]
     assert steps[0].argv == ["uv", "run", "ruff", "format", "--check", "."]
     assert steps[1].argv == ["uv", "run", "ruff", "check", "."]
     assert steps[2].argv == ["uv", "run", "mypy"]
     assert steps[3].argv == ["uv", "run", "lint-imports"]
     assert steps[4].argv == ["uv", "run", "pytest", "-q", "-m", "not live and not e2e"]
 
+
 def test_full_steps_include_e2e():
     assert build_check_steps(fast=False)[-1].argv == ["uv", "run", "pytest", "-q", "-m", "not live"]
+
 
 def test_run_counts_failures_and_runs_all_steps():
     codes, seen = iter([0, 1, 0]), []
@@ -184,6 +193,7 @@ Expected: los 5 pasos muestran `✓` y el código de salida es 0.
 ```python
 from flytrip.devtools.hooks import post_edit_commands, should_run_stop_check, summarize_failure
 
+
 def test_post_edit_formats_python_files():
     payload = {"tool_name": "Edit", "tool_input": {"file_path": "src/flytrip/core/models.py"}}
     assert post_edit_commands(payload) == [
@@ -191,16 +201,24 @@ def test_post_edit_formats_python_files():
         ["uv", "run", "ruff", "check", "--fix", "src/flytrip/core/models.py"],
     ]
 
+
 def test_post_edit_ignores_other_files():
-    assert post_edit_commands({"tool_name": "Write", "tool_input": {"file_path": "docs/setup.md"}}) == []
+    assert (
+        post_edit_commands({"tool_name": "Write", "tool_input": {"file_path": "docs/setup.md"}})
+        == []
+    )
+
 
 def test_stop_check_skips_when_hook_already_active():
     assert should_run_stop_check({"stop_hook_active": True}) is False
     assert should_run_stop_check({"stop_hook_active": False}) is True
 
+
 def test_summarize_keeps_last_lines():
     out = "\n".join(f"line {i}" for i in range(100))
-    assert summarize_failure(out, max_lines=40).splitlines() == [f"line {i}" for i in range(60, 100)]
+    assert summarize_failure(out, max_lines=40).splitlines() == [
+        f"line {i}" for i in range(60, 100)
+    ]
 ```
 
 ```python
@@ -208,12 +226,16 @@ def test_summarize_keeps_last_lines():
 import socket, pytest
 from pytest_socket import SocketConnectBlockedError
 
+
 def test_internet_is_blocked():
     with pytest.raises(SocketConnectBlockedError):
         socket.create_connection(("1.1.1.1", 443), timeout=1)
 
+
 def test_localhost_is_allowed():
-    server = socket.socket(); server.bind(("127.0.0.1", 0)); server.listen(1)
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
     with socket.create_connection(server.getsockname(), timeout=1):
         pass
     server.close()
@@ -223,11 +245,13 @@ def test_localhost_is_allowed():
 # tests/harness/test_docs.py
 ROOT = Path(__file__).resolve().parents[2]
 
+
 def test_claude_md_is_a_short_map():
     text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     assert len(text.splitlines()) <= 100
     for needle in ["uv run fly check", "docs/architecture.md", "docs/sources/", "tests/fixtures/"]:
         assert needle in text
+
 
 def test_agents_md_points_to_claude_md():
     assert "CLAUDE.md" in (ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -331,16 +355,33 @@ def test_normalize_flight_number():
     assert normalize_flight_number("H2", "H2 123") == "123"
     assert normalize_flight_number("JA", "7104") == "7104"
 
+
 def test_build_leg_computes_layovers():
-    leg = build_leg([seg("JA", "7104", "MDZ", "SCL", "2027-03-10T06:00", "2027-03-10T07:00"),
-                     seg("IB", "6830", "SCL", "MAD", "2027-03-10T23:50", "2027-03-11T16:40")], 1830)
+    leg = build_leg(
+        [
+            seg("JA", "7104", "MDZ", "SCL", "2027-03-10T06:00", "2027-03-10T07:00"),
+            seg("IB", "6830", "SCL", "MAD", "2027-03-10T23:50", "2027-03-11T16:40"),
+        ],
+        1830,
+    )
     assert leg.stops == 1 and leg.duration_minutes == 1830
-    assert leg.layovers[0] == Layover(airport="SCL", minutes=1010, overnight=False, airport_change=False)
+    assert leg.layovers[0] == Layover(
+        airport="SCL", minutes=1010, overnight=False, airport_change=False
+    )
+
 
 def test_overnight_and_airport_change():
-    leg = build_leg([seg("AR", "1405", "MDZ", "AEP", "2027-03-10T20:00", "2027-03-10T22:00"),
-                     seg("AR", "1132", "EZE", "MAD", "2027-03-11T08:00", "2027-03-12T01:00")], 1740)
-    assert leg.layovers[0] == Layover(airport="AEP", minutes=600, overnight=True, airport_change=True)
+    leg = build_leg(
+        [
+            seg("AR", "1405", "MDZ", "AEP", "2027-03-10T20:00", "2027-03-10T22:00"),
+            seg("AR", "1132", "EZE", "MAD", "2027-03-11T08:00", "2027-03-12T01:00"),
+        ],
+        1740,
+    )
+    assert leg.layovers[0] == Layover(
+        airport="AEP", minutes=600, overnight=True, airport_change=True
+    )
+
 
 def test_itinerary_id_is_stable_and_order_sensitive():
     a = build_leg([seg("IB", "6830", "SCL", "MAD", "2027-03-19T00:50", "2027-03-19T17:30")], 760)
@@ -348,34 +389,45 @@ def test_itinerary_id_is_stable_and_order_sensitive():
     assert itinerary_id(a, b) == itinerary_id(a, b) != itinerary_id(b, a)
     assert len(itinerary_id(a, None)) == 16
 
+
 def test_total_and_travel_hours_with_transfer():
-    it = make_itinerary(origin="SCL", price="758", out_minutes=780, in_minutes=780, transfer=T("80", "7"))
+    it = make_itinerary(
+        origin="SCL", price="758", out_minutes=780, in_minutes=780, transfer=T("80", "7")
+    )
     assert it.total_from_home_usd == Decimal("838")
     assert it.travel_hours == Decimal("40")
+
 
 def test_today_in_mendoza_is_utc_minus_3():
     assert today_in_mendoza(datetime(2026, 11, 10, 2, 30, tzinfo=timezone.utc)) == date(2026, 11, 9)
 
+
 TODAY = date(2026, 11, 9)
-q = make_query   # MAD, ("MDZ", "SCL", "EZE"), 2027-03-01..2027-05-31, 14–21 noches; kw sobrescribe
+q = make_query  # MAD, ("MDZ", "SCL", "EZE"), 2027-03-01..2027-05-31, 14–21 noches; kw sobrescribe
+
 
 def test_valid_query_has_no_errors():
     assert validate_query(q(), TODAY) == []
 
-@pytest.mark.parametrize("kw,message", [
-    ({"destination": "  "}, "Indica un destino."),
-    ({"origins": ()}, "Elige al menos un origen."),
-    ({"origins": ("MDZ", "X1")}, "Origen inválido: X1."),
-    ({"depart_from": TODAY}, "La fecha 'desde' tiene que ser posterior a hoy."),
-    ({"depart_to": date(2027, 2, 1)}, "La fecha 'hasta' no puede ser anterior a 'desde'."),
-    ({"depart_to": date(2028, 3, 2)}, "El rango de fechas no puede superar 365 días."),
-    ({"nights_max": None}, "Indica noches mínimas y máximas, o marca solo ida."),
-    ({"nights_min": 0}, "Las noches tienen que estar entre 1 y 60."),
-    ({"nights_min": 22}, "Las noches mínimas no pueden superar las máximas."),
-    ({"adults": 10}, "Adultos: entre 1 y 9."),
-])
+
+@pytest.mark.parametrize(
+    "kw,message",
+    [
+        ({"destination": "  "}, "Indica un destino."),
+        ({"origins": ()}, "Elige al menos un origen."),
+        ({"origins": ("MDZ", "X1")}, "Origen inválido: X1."),
+        ({"depart_from": TODAY}, "La fecha 'desde' tiene que ser posterior a hoy."),
+        ({"depart_to": date(2027, 2, 1)}, "La fecha 'hasta' no puede ser anterior a 'desde'."),
+        ({"depart_to": date(2028, 3, 2)}, "El rango de fechas no puede superar 365 días."),
+        ({"nights_max": None}, "Indica noches mínimas y máximas, o marca solo ida."),
+        ({"nights_min": 0}, "Las noches tienen que estar entre 1 y 60."),
+        ({"nights_min": 22}, "Las noches mínimas no pueden superar las máximas."),
+        ({"adults": 10}, "Adultos: entre 1 y 9."),
+    ],
+)
 def test_validation_messages(kw, message):
     assert message in validate_query(q(**kw), TODAY)
+
 
 def test_cache_key_changes_with_query():
     assert q().cache_key() == q().cache_key() != q(adults=2).cache_key()
@@ -424,30 +476,49 @@ Expected: todo `✓`. mypy en modo strict sobre `core` también pasa.
 
 ```python
 def test_sort_best_per_origin_and_balance():
-    a = make_itinerary(id="A", origin="SCL", price="758", out_minutes=780, in_minutes=780, transfer=T("80", "7"))
+    a = make_itinerary(
+        id="A", origin="SCL", price="758", out_minutes=780, in_minutes=780, transfer=T("80", "7")
+    )
     b = make_itinerary(id="B", origin="MDZ", price="934", out_minutes=900, in_minutes=960)
-    c = make_itinerary(id="C", origin="EZE", price="1021", out_minutes=750, in_minutes=780, transfer=T("200", "2"))
+    c = make_itinerary(
+        id="C", origin="EZE", price="1021", out_minutes=750, in_minutes=780, transfer=T("200", "2")
+    )
     ranked = sort_by_total([c, b, a])
     assert [i.id for i in ranked] == ["A", "B", "C"]
-    assert best_per_origin(ranked, ["MDZ", "SCL", "EZE", "AEP"]) == {"MDZ": b, "SCL": a, "EZE": c, "AEP": None}
-    assert best_balance(ranked, Decimal("10")).id == "A"   # 838+400=1238 < 934+310=1244
-    assert best_balance(ranked, Decimal("20")).id == "B"   # 934+620=1554 < 838+800=1638
+    assert best_per_origin(ranked, ["MDZ", "SCL", "EZE", "AEP"]) == {
+        "MDZ": b,
+        "SCL": a,
+        "EZE": c,
+        "AEP": None,
+    }
+    assert best_balance(ranked, Decimal("10")).id == "A"  # 838+400=1238 < 934+310=1244
+    assert best_balance(ranked, Decimal("20")).id == "B"  # 934+620=1554 < 838+800=1638
+
 
 def test_merge_keeps_both_links_cheapest_first():
     k = make_itinerary(id="X", offers=[("kiwi", "763", "https://kiwi.com/u/1")])
-    g = make_itinerary(id="X", offers=[("google", "770", "https://www.google.com/travel/flights?q=x")],
-                       separate_tickets=False)
+    g = make_itinerary(
+        id="X",
+        offers=[("google", "770", "https://www.google.com/travel/flights?q=x")],
+        separate_tickets=False,
+    )
     [m] = merge_duplicates([g, k])
     assert [o.source for o in m.offers] == ["kiwi", "google"]
     assert m.price_usd == Decimal("763") and m.separate_tickets is False
 
+
 def test_mark_separate_tickets_from_two_modes():
     x, y = make_itinerary(id="X"), make_itinerary(id="Y")
-    marked = {i.id: i.separate_tickets for i in mark_separate_tickets(all_mode=[x, y], protected_mode=[y])}
+    marked = {
+        i.id: i.separate_tickets for i in mark_separate_tickets(all_mode=[x, y], protected_mode=[y])
+    }
     assert marked == {"X": True, "Y": False}
 
+
 def test_apply_transfers_by_origin():
-    [scl] = apply_transfers([make_itinerary(origin="SCL", price="758")], {"SCL": T("80", "7"), "EZE": None})
+    [scl] = apply_transfers(
+        [make_itinerary(origin="SCL", price="758")], {"SCL": T("80", "7"), "EZE": None}
+    )
     [mdz] = apply_transfers([make_itinerary(origin="MDZ", price="934")], {"SCL": T("80", "7")})
     assert scl.total_from_home_usd == Decimal("838")
     assert mdz.transfer is None and mdz.total_from_home_usd == Decimal("934")
@@ -504,22 +575,43 @@ Expected: todo `✓`.
 - [ ] **Step 1: Escribir los tests que fallan**
 
 ```python
-REQ = SourceRequest(origin="SCL", destination="MAD", depart_from=date(2027, 3, 1), depart_to=date(2027, 5, 31),
-                    nights_min=14, nights_max=21, adults=1, allow_separate_tickets=True)
+REQ = SourceRequest(
+    origin="SCL",
+    destination="MAD",
+    depart_from=date(2027, 3, 1),
+    depart_to=date(2027, 5, 31),
+    nights_min=14,
+    nights_max=21,
+    adults=1,
+    allow_separate_tickets=True,
+)
+
 
 async def test_unexpected_exception_becomes_error(tmp_path):
     src = FakeSource("fake", lambda r: ValueError("x"))
-    r = await run_safely(src, REQ, timeout_s=1, pauses=PauseRegistry(tmp_path / "p.json", CLOCK), clock=CLOCK)
+    r = await run_safely(
+        src, REQ, timeout_s=1, pauses=PauseRegistry(tmp_path / "p.json", CLOCK), clock=CLOCK
+    )
     assert (r.status, r.detail) == ("error", "Error inesperado (ValueError)")
+
 
 async def test_timeout(tmp_path):
     src = FakeSource("slow", lambda r: SourceResult(source="slow", status="ok"), delay_s=5)
-    r = await run_safely(src, REQ, timeout_s=1, pauses=PauseRegistry(tmp_path / "p.json", CLOCK), clock=CLOCK)
+    r = await run_safely(
+        src, REQ, timeout_s=1, pauses=PauseRegistry(tmp_path / "p.json", CLOCK), clock=CLOCK
+    )
     assert (r.status, r.detail) == ("timeout", "No respondió en 1 s")
+
 
 async def test_blocked_pauses_for_60_minutes_and_persists(tmp_path):
     pauses = PauseRegistry(tmp_path / "p.json", CLOCK)
-    r = await run_safely(FakeSource("g", lambda r: SourceBlocked("429")), REQ, timeout_s=1, pauses=pauses, clock=CLOCK)
+    r = await run_safely(
+        FakeSource("g", lambda r: SourceBlocked("429")),
+        REQ,
+        timeout_s=1,
+        pauses=pauses,
+        clock=CLOCK,
+    )
     assert (r.status, r.detail) == ("paused", "En pausa hasta las 13:00: 429")
     assert PauseRegistry(tmp_path / "p.json", CLOCK).active_pause("g") is not None
     later = fixed_clock("2026-11-09T16:01:00+00:00")
@@ -529,8 +621,13 @@ async def test_blocked_pauses_for_60_minutes_and_persists(tmp_path):
 ```python
 @pytest.mark.parametrize("case", CONTRACT_CASES, ids=lambda c: c.id)
 async def test_source_contract(case, tmp_path):
-    result = await run_safely(case.source, case.request, timeout_s=2,
-                              pauses=PauseRegistry(tmp_path / "p.json", CLOCK), clock=CLOCK)
+    result = await run_safely(
+        case.source,
+        case.request,
+        timeout_s=2,
+        pauses=PauseRegistry(tmp_path / "p.json", CLOCK),
+        clock=CLOCK,
+    )
     assert result.status == case.expected_status
     for it in result.itineraries:
         assert it.offers and all(o.source == case.source.name for o in it.offers)
@@ -620,35 +717,70 @@ Escribir a mano los sintéticos, con el formato SSE real de Kiwi:
 - [ ] **Step 3: Escribir los tests que fallan**
 
 ```python
-REQ = SourceRequest(origin="SCL", destination="MAD", depart_from=date(2027, 3, 1), depart_to=date(2027, 5, 31),
-                    nights_min=14, nights_max=21, adults=1, allow_separate_tickets=False)
+REQ = SourceRequest(
+    origin="SCL",
+    destination="MAD",
+    depart_from=date(2027, 3, 1),
+    depart_to=date(2027, 5, 31),
+    nights_min=14,
+    nights_max=21,
+    adults=1,
+    allow_separate_tickets=False,
+)
+
 
 def test_build_arguments_return_trip():
     assert build_arguments(REQ) == {
-        "flyFrom": "SCL", "flyTo": "MAD", "departureDate": "01/03/2027", "departureDateTo": "31/05/2027",
-        "adults": 1, "currency": "USD", "locale": "es", "sort": "price", "allow_self_transfer": False,
-        "nights_in_dst_from": 14, "nights_in_dst_to": 21}
+        "flyFrom": "SCL",
+        "flyTo": "MAD",
+        "departureDate": "01/03/2027",
+        "departureDateTo": "31/05/2027",
+        "adults": 1,
+        "currency": "USD",
+        "locale": "es",
+        "sort": "price",
+        "allow_self_transfer": False,
+        "nights_in_dst_from": 14,
+        "nights_in_dst_to": 21,
+    }
+
 
 def test_build_arguments_oneway_has_no_nights():
-    assert "nights_in_dst_from" not in build_arguments(REQ.model_copy(update={"nights_min": None, "nights_max": None}))
+    assert "nights_in_dst_from" not in build_arguments(
+        REQ.model_copy(update={"nights_min": None, "nights_max": None})
+    )
+
 
 def test_split_window_92_days():
     assert split_window(date(2027, 1, 1), date(2027, 12, 31), 92) == [
-        (date(2027, 1, 1), date(2027, 4, 2)), (date(2027, 4, 3), date(2027, 7, 3)),
-        (date(2027, 7, 4), date(2027, 10, 3)), (date(2027, 10, 4), date(2027, 12, 31))]
+        (date(2027, 1, 1), date(2027, 4, 2)),
+        (date(2027, 4, 3), date(2027, 7, 3)),
+        (date(2027, 7, 4), date(2027, 10, 3)),
+        (date(2027, 10, 4), date(2027, 12, 31)),
+    ]
+
 
 @pytest.mark.parametrize("name", ["synthetic_two_segments.sse", "synthetic_text_only.sse"])
 def test_normalize_synthetic(name):
     [it] = normalize(parse_sse(fixture("kiwi", name)), origin="MDZ", adults=1, fetched_at=FETCHED)
     assert it.price_usd == Decimal("934") and it.trip_type == "return" and it.destination == "MAD"
-    assert [(s.carrier_code, s.flight_number) for s in it.outbound.segments] == [("JA", "7104"), ("IB", "6830")]
+    assert [(s.carrier_code, s.flight_number) for s in it.outbound.segments] == [
+        ("JA", "7104"),
+        ("IB", "6830"),
+    ]
     assert it.outbound.layovers[0].minutes == 1010 and it.outbound.duration_minutes == 1830
     assert it.inbound.layovers[0].minutes == 315 and it.inbound.duration_minutes == 1125
     assert it.baggage == Baggage(personal_item=1, cabin_bag=1, checked_bag=0)
     assert it.offers[0].booking_url == "https://kiwi.com/u/abc123" and it.separate_tickets is None
 
-RECORDED_KIWI_FIXTURES = [("madrid_scl_return.sse", "SCL"), ("madrid_mdz_return_all.sse", "MDZ"),
-                          ("madrid_mdz_return_protected.sse", "MDZ"), ("madrid_eze_return.sse", "EZE")]
+
+RECORDED_KIWI_FIXTURES = [
+    ("madrid_scl_return.sse", "SCL"),
+    ("madrid_mdz_return_all.sse", "MDZ"),
+    ("madrid_mdz_return_protected.sse", "MDZ"),
+    ("madrid_eze_return.sse", "EZE"),
+]
+
 
 @pytest.mark.parametrize("name,origin", RECORDED_KIWI_FIXTURES)
 def test_recorded_fixtures_normalize(name, origin):
@@ -657,27 +789,36 @@ def test_recorded_fixtures_normalize(name, origin):
     itins = normalize(rpc, origin=origin, adults=1, fetched_at=FETCHED)
     assert len(itins) == data["resultsCount"] and all(i.price_usd > 0 for i in itins)
 
+
 def test_two_adults_price_is_total():
     rpc = parse_sse(fixture("kiwi", "madrid_scl_return_2adults.sse"))
     raw = Decimal(str(rpc["result"]["structuredContent"]["itineraries"][0]["price"]))
     [first, *_] = normalize(rpc, origin="SCL", adults=2, fetched_at=FETCHED)
     assert first.price_usd == (raw if KIWI_PRICE_IS_TOTAL else raw * 2)
 
+
 @respx.mock
 async def test_tool_error_and_wrong_currency_are_errors():
-    respx.post(KIWI_URL).mock(side_effect=[httpx.Response(200, text=fixture("kiwi", "tool_error.sse")),
-                                           httpx.Response(200, text=fixture("kiwi", "wrong_currency.sse"))])
+    respx.post(KIWI_URL).mock(
+        side_effect=[
+            httpx.Response(200, text=fixture("kiwi", "tool_error.sse")),
+            httpx.Response(200, text=fixture("kiwi", "wrong_currency.sse")),
+        ]
+    )
     async with httpx.AsyncClient() as c:
         src = KiwiSource(c, clock=CLOCK)
         assert (await src.search(REQ)).detail == "Kiwi: Invalid date"
         assert "moneda inesperada" in (await src.search(REQ)).detail
+
 
 @respx.mock
 async def test_429_pauses_kiwi(tmp_path):
     respx.post(KIWI_URL).mock(return_value=httpx.Response(429))
     pauses = PauseRegistry(tmp_path / "p.json", CLOCK)
     async with httpx.AsyncClient() as c:
-        r = await run_safely(KiwiSource(c, clock=CLOCK), REQ, timeout_s=5, pauses=pauses, clock=CLOCK)
+        r = await run_safely(
+            KiwiSource(c, clock=CLOCK), REQ, timeout_s=5, pauses=pauses, clock=CLOCK
+        )
     assert r.status == "paused" and pauses.active_pause("kiwi") is not None
 ```
 
@@ -769,8 +910,17 @@ Los sintéticos se generan construyendo `FlightResult` en Python y volcándolos 
 - [ ] **Step 3: Escribir los tests que fallan**
 
 ```python
-PAIR = SourceRequest(origin="SCL", destination="MAD", depart_from=date(2027, 3, 19), depart_to=date(2027, 3, 19),
-                     nights_min=16, nights_max=16, adults=1, allow_separate_tickets=True)
+PAIR = SourceRequest(
+    origin="SCL",
+    destination="MAD",
+    depart_from=date(2027, 3, 19),
+    depart_to=date(2027, 3, 19),
+    nights_min=16,
+    nights_max=16,
+    adults=1,
+    allow_separate_tickets=True,
+)
+
 
 def test_build_filters_round_trip():
     f = build_filters(PAIR)
@@ -778,45 +928,70 @@ def test_build_filters_round_trip():
     assert [s.travel_date for s in f.flight_segments] == ["2027-03-19", "2027-04-04"]
     assert f.passenger_info.adults == 1
 
+
 def test_build_filters_rejects_windows_and_non_airports():
     with pytest.raises(ValueError, match="fechas exactas"):
         build_filters(PAIR.model_copy(update={"depart_to": date(2027, 3, 20)}))
     with pytest.raises(ValueError, match="no es un aeropuerto"):
         build_filters(PAIR.model_copy(update={"destination": "Madrid"}))
 
+
 def test_google_search_url():
     assert google_search_url("SCL", "MAD", date(2027, 3, 19), date(2027, 4, 4)) == (
         "https://www.google.com/travel/flights?q=Flights%20to%20MAD%20from%20SCL%20on%202027-03-19"
-        "%20through%202027-04-04&curr=USD&hl=es")
-    assert google_search_url("EZE", "MAD", date(2027, 3, 7), None).endswith("on%202027-03-07&curr=USD&hl=es")
+        "%20through%202027-04-04&curr=USD&hl=es"
+    )
+    assert google_search_url("EZE", "MAD", date(2027, 3, 7), None).endswith(
+        "on%202027-03-07&curr=USD&hl=es"
+    )
+
 
 def test_normalize_synthetic_oneway():
-    [it] = normalize_results(load_fli("synthetic_oneway.json"), origin="EZE", destination="MAD", adults=1, fetched_at=FETCHED)
-    assert it.price_usd == Decimal("650") and it.trip_type == "oneway" and it.separate_tickets is False
+    [it] = normalize_results(
+        load_fli("synthetic_oneway.json"),
+        origin="EZE",
+        destination="MAD",
+        adults=1,
+        fetched_at=FETCHED,
+    )
+    assert (
+        it.price_usd == Decimal("650") and it.trip_type == "oneway" and it.separate_tickets is False
+    )
     assert [(s.carrier_code, s.flight_number) for s in it.outbound.segments] == [("AR", "1132")]
     assert it.offers[0].source == "google" and it.baggage is None
 
+
 def test_round_trip_price_comes_from_verified_element():
-    [it] = normalize_results(load_fli("synthetic_rt.json"), origin="SCL", destination="MAD", adults=1, fetched_at=FETCHED)
-    assert it.price_usd == Decimal("980")   # ajustar al elemento verificado en el Step 1
+    [it] = normalize_results(
+        load_fli("synthetic_rt.json"), origin="SCL", destination="MAD", adults=1, fetched_at=FETCHED
+    )
+    assert it.price_usd == Decimal("980")  # ajustar al elemento verificado en el Step 1
+
 
 async def test_wrong_currency_is_error():
-    r = await GoogleFlightsSource(FakeFli(load_fli("wrong_currency.json")), clock=CLOCK).search(PAIR)
+    r = await GoogleFlightsSource(FakeFli(load_fli("wrong_currency.json")), clock=CLOCK).search(
+        PAIR
+    )
     assert r.status == "error" and "moneda inesperada" in r.detail and r.itineraries == ()
+
 
 async def test_429_pauses_google(tmp_path):
     pauses = PauseRegistry(tmp_path / "p.json", CLOCK)
     src = GoogleFlightsSource(FakeFli(raises=SearchHTTPError("x", status_code=429)), clock=CLOCK)
     assert (await run_safely(src, PAIR, timeout_s=5, pauses=pauses, clock=CLOCK)).status == "paused"
 
+
 async def test_parse_error_says_format_changed():
     src = GoogleFlightsSource(FakeFli(raises=SearchParseError("bad")), clock=CLOCK)
     assert (await src.search(PAIR)).detail == "Google cambió el formato de la página"
 
+
 def test_two_adults_price_is_total():
     raw = load_fli("madrid_scl_rt_2adults.json")
-    [first, *_] = normalize_results(raw, origin="SCL", destination="MAD", adults=2, fetched_at=FETCHED)
-    expected = verified_total_price(raw[0])   # helper del test: lee el elemento verificado
+    [first, *_] = normalize_results(
+        raw, origin="SCL", destination="MAD", adults=2, fetched_at=FETCHED
+    )
+    expected = verified_total_price(raw[0])  # helper del test: lee el elemento verificado
     assert first.price_usd == (expected if GOOGLE_PRICE_IS_TOTAL else expected * 2)
 ```
 
@@ -870,14 +1045,17 @@ def test_defaults_when_missing(tmp_path):
     assert s.default_origins == ("MDZ", "SCL", "EZE") and s.usd_per_hour == Decimal("10")
     assert s.transfers == {"SCL": None, "EZE": None} and s.adults == 1
 
+
 def test_roundtrip(tmp_path):
     store = SettingsStore(tmp_path / "settings.json")
     store.save(Settings(transfers={"SCL": T("80", "7"), "EZE": None}))
     assert store.load().transfers["SCL"] == T("80", "7")
 
+
 def test_invalid_file_falls_back_to_defaults(tmp_path):
     (tmp_path / "settings.json").write_text("{nope", encoding="utf-8")
     assert SettingsStore(tmp_path / "settings.json").load() == Settings()
+
 
 def test_negative_transfer_is_rejected():
     with pytest.raises(ValidationError):
@@ -944,67 +1122,116 @@ Expected: todo `✓`.
 
 ```python
 def test_round_robin_respects_budget_for_return_trips():
-    kiwi = [itin_on("SCL", "2027-03-19", "2027-04-04", 758), itin_on("SCL", "2027-03-11", "2027-03-31", 763),
-            itin_on("MDZ", "2027-03-10", "2027-03-25", 934), itin_on("MDZ", "2027-03-09", "2027-03-24", 949),
-            itin_on("EZE", "2027-03-07", "2027-03-26", 1021), itin_on("EZE", "2027-04-18", "2027-05-05", 1038),
-            itin_on("SCL", "2027-03-08", "2027-03-24", 763)]
+    kiwi = [
+        itin_on("SCL", "2027-03-19", "2027-04-04", 758),
+        itin_on("SCL", "2027-03-11", "2027-03-31", 763),
+        itin_on("MDZ", "2027-03-10", "2027-03-25", 934),
+        itin_on("MDZ", "2027-03-09", "2027-03-24", 949),
+        itin_on("EZE", "2027-03-07", "2027-03-26", 1021),
+        itin_on("EZE", "2027-04-18", "2027-05-05", 1038),
+        itin_on("SCL", "2027-03-08", "2027-03-24", 763),
+    ]
     pairs = select_google_candidates(kiwi, q(), fetch_budget=12)
     assert [(p.origin, p.depart.isoformat()) for p in pairs] == [
-        ("MDZ", "2027-03-10"), ("SCL", "2027-03-19"), ("EZE", "2027-03-07"),
-        ("MDZ", "2027-03-09"), ("SCL", "2027-03-11"), ("EZE", "2027-04-18")]
+        ("MDZ", "2027-03-10"),
+        ("SCL", "2027-03-19"),
+        ("EZE", "2027-03-07"),
+        ("MDZ", "2027-03-09"),
+        ("SCL", "2027-03-11"),
+        ("EZE", "2027-04-18"),
+    ]
+
 
 def test_fallback_dates_when_origin_has_no_kiwi_results():
     pairs = select_google_candidates([], q(origins=("EZE",)), fetch_budget=12)
-    assert [p.depart.isoformat() for p in pairs] == ["2027-03-19", "2027-04-06", "2027-04-25", "2027-05-13"]
+    assert [p.depart.isoformat() for p in pairs] == [
+        "2027-03-19",
+        "2027-04-06",
+        "2027-04-25",
+        "2027-05-13",
+    ]
     assert all(p.return_date == p.depart + timedelta(days=14) for p in pairs)
+
 
 def test_no_fallback_for_city_names():
     assert select_google_candidates([], q(destination="Madrid"), fetch_budget=12) == []
 ```
 
 ```python
-async def test_kiwi_snapshot_arrives_before_google_finishes(engine):   # google fake con delay 0.3 s
+async def test_kiwi_snapshot_arrives_before_google_finishes(engine):  # google fake con delay 0.3 s
     events = [e async for e in engine.run(q())]
-    first_partial = next(i for i, e in enumerate(events) if isinstance(e, SnapshotEvent) and not e.final)
-    google_done = next(i for i, e in enumerate(events) if isinstance(e, StatusEvent)
-                       and e.status.source == "google" and e.status.state not in {"pending", "running"})
-    assert first_partial < google_done and isinstance(events[-1], SnapshotEvent) and events[-1].final
+    first_partial = next(
+        i for i, e in enumerate(events) if isinstance(e, SnapshotEvent) and not e.final
+    )
+    google_done = next(
+        i
+        for i, e in enumerate(events)
+        if isinstance(e, StatusEvent)
+        and e.status.source == "google"
+        and e.status.state not in {"pending", "running"}
+    )
+    assert (
+        first_partial < google_done and isinstance(events[-1], SnapshotEvent) and events[-1].final
+    )
+
 
 async def test_separate_tickets_from_two_kiwi_modes(engine):
     final = (await collect(engine.run(q())))[-1].snapshot
-    assert {i.id: i.separate_tickets for i in final.itineraries if i.id in {"SELF", "PROT"}} == {"SELF": True, "PROT": False}
+    assert {i.id: i.separate_tickets for i in final.itineraries if i.id in {"SELF", "PROT"}} == {
+        "SELF": True,
+        "PROT": False,
+    }
+
 
 async def test_disallowing_separate_tickets(engine):
     final = (await collect(engine.run(q(allow_separate_tickets=False))))[-1].snapshot
-    assert all(r.allow_separate_tickets is False for r in engine.kiwi.calls) and len(engine.kiwi.calls) == 3
+    assert (
+        all(r.allow_separate_tickets is False for r in engine.kiwi.calls)
+        and len(engine.kiwi.calls) == 3
+    )
     assert all(i.separate_tickets is not True for i in final.itineraries)
+
 
 async def test_google_calls_stay_within_budget(engine):
     await collect(engine.run(q()))
     assert sum(2 if r.nights_min else 1 for r in engine.google.calls) <= 12
+
 
 async def test_paused_google_is_not_called(engine, pauses):
     pauses.pause("google", 60, "429")
     final = (await collect(engine.run(q())))[-1].snapshot
     assert engine.google.calls == [] and final.statuses["google"].state == "paused"
 
-async def test_hard_timeout_marks_pending_sources(slow_engine):   # hard_timeout_s=0.2, kiwi con delay 5 s
+
+async def test_hard_timeout_marks_pending_sources(
+    slow_engine,
+):  # hard_timeout_s=0.2, kiwi con delay 5 s
     final = (await collect(slow_engine.run(q())))[-1].snapshot
     assert final.statuses["kiwi"].state == "timeout"
 
+
 async def test_cache_hit_and_expiry(engine, clock):
-    await collect(engine.run(q())); calls = len(engine.kiwi.calls)
+    await collect(engine.run(q()))
+    calls = len(engine.kiwi.calls)
     clock.advance(minutes=10)
     [only] = await collect(engine.run(q()))
-    assert only.snapshot.from_cache and only.snapshot.cache_age_minutes == 10 and len(engine.kiwi.calls) == calls
+    assert (
+        only.snapshot.from_cache
+        and only.snapshot.cache_age_minutes == 10
+        and len(engine.kiwi.calls) == calls
+    )
     clock.advance(minutes=21)
     await collect(engine.run(q()))
     assert len(engine.kiwi.calls) > calls
 
+
 async def test_transfers_and_empty_origin(engine_without_eze_results):
     final = (await collect(engine_without_eze_results.run(q())))[-1].snapshot
     assert final.best_per_origin["EZE"] is None
-    assert final.best_per_origin["SCL"].total_from_home_usd == Decimal("838")   # ajustes: SCL = T("80", "7")
+    assert final.best_per_origin["SCL"].total_from_home_usd == Decimal(
+        "838"
+    )  # ajustes: SCL = T("80", "7")
+
 
 async def test_logs_one_record_per_source(engine, caplog):
     caplog.set_level("INFO", logger="flytrip.search")
@@ -1086,25 +1313,68 @@ Expected: todo `✓`.
 
 ```python
 def test_search_table_shows_totals_and_warning(monkeypatch):
-    monkeypatch.setattr(cli, "engine_factory", lambda home: StaticEngine(SNAPSHOT_A_B_C))   # snapshot de la Tarea 4
-    result = CliRunner().invoke(cli.app, ["search", "MAD", "--desde", "2027-03-01", "--hasta", "2027-05-31", "--noches", "14-21"])
+    monkeypatch.setattr(
+        cli, "engine_factory", lambda home: StaticEngine(SNAPSHOT_A_B_C)
+    )  # snapshot de la Tarea 4
+    result = CliRunner().invoke(
+        cli.app,
+        ["search", "MAD", "--desde", "2027-03-01", "--hasta", "2027-05-31", "--noches", "14-21"],
+    )
     assert result.exit_code == 0
     assert "838 USD" in result.output and "758 + 80 traslado" in result.output
     assert "SCL → MAD" in result.output and "⚠" in result.output
 
+
 def test_search_json_is_a_snapshot(monkeypatch):
     monkeypatch.setattr(cli, "engine_factory", lambda home: StaticEngine(SNAPSHOT_A_B_C))
-    out = CliRunner().invoke(cli.app, ["search", "MAD", "--desde", "2027-03-01", "--hasta", "2027-05-31", "--noches", "14-21", "--json"]).output
+    out = (
+        CliRunner()
+        .invoke(
+            cli.app,
+            [
+                "search",
+                "MAD",
+                "--desde",
+                "2027-03-01",
+                "--hasta",
+                "2027-05-31",
+                "--noches",
+                "14-21",
+                "--json",
+            ],
+        )
+        .output
+    )
     assert SearchSnapshot.model_validate_json(out).itineraries[0].id == "A"
 
+
 def test_invalid_query_exits_2_in_spanish():
-    r = CliRunner().invoke(cli.app, ["search", "MAD", "--desde", "2027-05-31", "--hasta", "2027-03-01", "--solo-ida"])
+    r = CliRunner().invoke(
+        cli.app, ["search", "MAD", "--desde", "2027-05-31", "--hasta", "2027-03-01", "--solo-ida"]
+    )
     assert r.exit_code == 2 and "La fecha 'hasta' no puede ser anterior a 'desde'." in r.output
+
 
 def test_search_output_survives_cp1252(tmp_path):
     env = {**os.environ, "PYTHONIOENCODING": "cp1252", "FLYTRIP_HOME": str(tmp_path)}
-    proc = subprocess.run([sys.executable, "-m", "flytrip", "search", "MAD", "--desde", "2027-03-01",
-                           "--hasta", "2027-05-31", "--noches", "14-21", "--demo"], env=env, capture_output=True)
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "flytrip",
+            "search",
+            "MAD",
+            "--desde",
+            "2027-03-01",
+            "--hasta",
+            "2027-05-31",
+            "--noches",
+            "14-21",
+            "--demo",
+        ],
+        env=env,
+        capture_output=True,
+    )
     assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
     assert b"UnicodeEncodeError" not in proc.stderr
 ```
@@ -1116,14 +1386,28 @@ def test_views_formatting():
     assert format_duration(800) == "13 h 20 min" and format_duration(45) == "45 min"
     assert format_short_date(date(2027, 3, 19)) == "19/03"
 
+
 def test_price_breakdown():
-    assert price_breakdown(make_itinerary(origin="SCL", price="758", transfer=T("80", "7"))) == "758 + 80 traslado"
+    assert (
+        price_breakdown(make_itinerary(origin="SCL", price="758", transfer=T("80", "7")))
+        == "758 + 80 traslado"
+    )
     assert price_breakdown(make_itinerary(origin="MDZ", price="934")) == "934"
-    assert price_breakdown(make_itinerary(origin="EZE", price="1021")) == "1.021 + traslado (sin configurar)"
+    assert (
+        price_breakdown(make_itinerary(origin="EZE", price="1021"))
+        == "1.021 + traslado (sin configurar)"
+    )
+
 
 def test_status_label():
-    assert status_label(SourceStatus(source="kiwi", state="ok", latency_ms=2300, count=15)) == "Kiwi: OK (15 en 2,3 s)"
-    assert status_label(SourceStatus(source="google", state="paused", detail="429")) == "Google Flights: en pausa — 429"
+    assert (
+        status_label(SourceStatus(source="kiwi", state="ok", latency_ms=2300, count=15))
+        == "Kiwi: OK (15 en 2,3 s)"
+    )
+    assert (
+        status_label(SourceStatus(source="google", state="paused", detail="429"))
+        == "Google Flights: en pausa — 429"
+    )
 ```
 
 - [ ] **Step 2: Comprobar que fallan**
@@ -1183,8 +1467,11 @@ Expected: todo `✓`, y la segunda orden imprime la tabla.
 - [ ] **Step 1: Escribir los tests que fallan**
 
 ```python
-QS = ("destino=MAD&desde=2027-03-01&hasta=2027-05-31&noches_min=14&noches_max=21"
-      "&origenes=MDZ&origenes=SCL&origenes=EZE&adultos=1&separados=1")
+QS = (
+    "destino=MAD&desde=2027-03-01&hasta=2027-05-31&noches_min=14&noches_max=21"
+    "&origenes=MDZ&origenes=SCL&origenes=EZE&adultos=1&separados=1"
+)
+
 
 def test_index_prefills_defaults(client):
     html = client.get("/").text
@@ -1192,25 +1479,35 @@ def test_index_prefills_defaults(client):
         assert f'value="{code}" checked' in html
     assert 'name="adultos" value="1"' in html
 
+
 def test_stream_emits_status_then_results_then_done(client):
-    events = sse_events(client, "/buscar/stream?" + QS)   # helper: [(event, data)]
+    events = sse_events(client, "/buscar/stream?" + QS)  # helper: [(event, data)]
     names = [e for e, _ in events]
     assert names[0] == "status" and "results" in names and names[-1] == "done"
+
 
 def test_results_show_breakdown_and_separate_warning(client):
     html = "".join(d for e, d in sse_events(client, "/buscar/stream?" + QS) if e == "results")
     assert "758 + 80 traslado" in html and "Pasajes separados" in html and "Comprar en Kiwi" in html
 
+
 def test_empty_origin_card_shows_message(client_without_eze):
-    html = "".join(d for e, d in sse_events(client_without_eze, "/buscar/stream?" + QS) if e == "results")
+    html = "".join(
+        d for e, d in sse_events(client_without_eze, "/buscar/stream?" + QS) if e == "results"
+    )
     assert "Vía Ezeiza" in html and "Sin resultados para este origen" in html
+
 
 def test_validation_error_is_spanish_422(client):
     r = client.get("/buscar/stream?" + QS.replace("desde=2027-03-01", "desde=2020-01-01"))
     assert r.status_code == 422 and "La fecha 'desde' tiene que ser posterior a hoy." in r.text
 
+
 def test_settings_post_persists_transfers(client, settings_store):
-    client.post("/ajustes", data={"traslado_SCL_costo": "80", "traslado_SCL_horas": "7", "usd_por_hora": "10"})
+    client.post(
+        "/ajustes",
+        data={"traslado_SCL_costo": "80", "traslado_SCL_horas": "7", "usd_por_hora": "10"},
+    )
     assert settings_store.load().transfers["SCL"] == T("80", "7")
 ```
 
@@ -1264,10 +1561,13 @@ Expected: todo `✓`.
 
 ```python
 def test_find_free_port_skips_busy():
-    busy = socket.socket(); busy.bind(("127.0.0.1", 0)); port = busy.getsockname()[1]
+    busy = socket.socket()
+    busy.bind(("127.0.0.1", 0))
+    port = busy.getsockname()[1]
     busy.listen(1)
     assert find_free_port(port) > port
     busy.close()
+
 
 def test_launcher_runs_fly_web():
     text = (ROOT / "Buscar vuelos.cmd").read_text(encoding="utf-8")
@@ -1276,15 +1576,19 @@ def test_launcher_runs_fly_web():
 
 ```python
 @pytest.mark.e2e
-def test_search_flow(page, demo_server):   # demo_server: `fly web --demo --no-abrir --puerto <libre>` en un subproceso
+def test_search_flow(
+    page, demo_server
+):  # demo_server: `fly web --demo --no-abrir --puerto <libre>` en un subproceso
     page.goto(demo_server)
     page.fill("input[name=destino]", "MAD")
-    page.fill("input[name=desde]", "2027-03-01"); page.fill("input[name=hasta]", "2027-05-31")
-    page.fill("input[name=noches_min]", "14"); page.fill("input[name=noches_max]", "21")
+    page.fill("input[name=desde]", "2027-03-01")
+    page.fill("input[name=hasta]", "2027-05-31")
+    page.fill("input[name=noches_min]", "14")
+    page.fill("input[name=noches_max]", "21")
     page.click("text=Buscar")
     page.wait_for_selector("text=Kiwi: OK")
     assert page.locator(".itinerary").count() >= 1
-    assert not page.locator("text=Google Flights: OK").is_visible()   # Google demo tarda 1,5 s
+    assert not page.locator("text=Google Flights: OK").is_visible()  # Google demo tarda 1,5 s
     page.wait_for_selector("text=Google Flights: OK")
     assert page.locator("text=Vía Santiago").is_visible()
     hrefs = page.locator("a:has-text('Comprar')").evaluate_all("els => els.map(e => e.href)")
@@ -1335,23 +1639,38 @@ Verificación manual: hacer doble clic en `Buscar vuelos.cmd`. Debe abrirse el n
 
 ```python
 def test_shape_ok():
-    h = check_result_shape(SourceResult(source="kiwi", status="ok", itineraries=(make_itinerary(),), latency_ms=2300))
+    h = check_result_shape(
+        SourceResult(source="kiwi", status="ok", itineraries=(make_itinerary(),), latency_ms=2300)
+    )
     assert h.ok and h.detail == "OK: 1 itinerarios en 2,3 s"
 
+
 def test_shape_empty_is_broken():
-    assert check_result_shape(SourceResult(source="kiwi", status="ok")).detail == "Rota: 0 itinerarios"
+    assert (
+        check_result_shape(SourceResult(source="kiwi", status="ok")).detail == "Rota: 0 itinerarios"
+    )
+
 
 def test_shape_passes_source_detail():
-    r = SourceResult(source="google", status="error", detail="Google cambió el formato de la página")
-    assert check_result_shape(r) == SourceHealth("google", False, "Rota: Google cambió el formato de la página", 0)
+    r = SourceResult(
+        source="google", status="error", detail="Google cambió el formato de la página"
+    )
+    assert check_result_shape(r) == SourceHealth(
+        "google", False, "Rota: Google cambió el formato de la página", 0
+    )
 ```
 
 ```python
 @pytest.mark.live
 async def test_live_sources_are_healthy(tmp_path):
     engine = build_engine(tmp_path)
-    health = await run_doctor(engine.kiwi, engine.google, today=today_in_mendoza(datetime.now(timezone.utc)),
-                              pauses=PauseRegistry(tmp_path / "p.json", utc_now), clock=utc_now)
+    health = await run_doctor(
+        engine.kiwi,
+        engine.google,
+        today=today_in_mendoza(datetime.now(timezone.utc)),
+        pauses=PauseRegistry(tmp_path / "p.json", utc_now),
+        clock=utc_now,
+    )
     assert {h.source: h.ok for h in health}["kiwi"] is True
 ```
 
