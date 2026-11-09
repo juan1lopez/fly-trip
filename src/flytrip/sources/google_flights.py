@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import quote
 
 from fli.models import (
@@ -23,15 +23,17 @@ from fli.search import (
     SearchHTTPError,
     SearchTimeoutError,
 )
+from fli.search.client import Client
 from fli.search.flights import SearchParseError
 
 from flytrip.core.legs import build_leg, itinerary_id
 from flytrip.core.models import Itinerary, Offer, Segment
-from flytrip.sources.base import SourceBlocked, SourceRequest, SourceResult
+from flytrip.sources.base import BLOCK_PAUSE_MINUTES, SourceBlocked, SourceRequest, SourceResult
 
 GOOGLE_FETCH_BUDGET = 12
 GOOGLE_MAX_CONCURRENCY = 3
 GOOGLE_RETURN_PAIR_COST = 2
+GOOGLE_RATE_LIMITED = "Google Flights limitó las consultas (429)"
 # ASSUMED, NOT VERIFIED live: see docs/sources/google-flights.md (question d).
 GOOGLE_PRICE_IS_TOTAL = True
 
@@ -60,7 +62,25 @@ class FliClient(Protocol):
     ) -> RawResults | None: ...
 
 
+class _SingleAttemptClient(Client):  # type: ignore[misc]
+    """fli's HTTP client without its hidden retries: one fetch is exactly one request.
+
+    fli 0.9.0 decorates `Client.post` with tenacity (3 attempts, exponential wait), so a single
+    blocked or failing fetch becomes up to three requests. `__wrapped__` is the undecorated method,
+    which keeps the rate limiter, the timeout and the error mapping.
+    """
+
+    def post(self, url: str, **kwargs: Any) -> Any:
+        return Client.post.__wrapped__(self, url, **kwargs)
+
+    def get(self, url: str, **kwargs: Any) -> Any:
+        return Client.get.__wrapped__(self, url, **kwargs)
+
+
 class RealFliClient:
+    def __init__(self) -> None:
+        self._client = _SingleAttemptClient()
+
     def search(
         self,
         filters: FlightSearchFilters,
@@ -70,7 +90,9 @@ class RealFliClient:
         language: str,
         country: str,
     ) -> RawResults | None:
-        raw: RawResults | None = SearchFlights().search(
+        searcher = SearchFlights()
+        searcher.client = self._client
+        raw: RawResults | None = searcher.search(
             filters, top_n=top_n, currency=currency, language=language, country=country
         )
         return raw
@@ -206,12 +228,16 @@ class GoogleFlightsSource:
         self._client = client
         self._clock = clock
         self._semaphore = asyncio.Semaphore(max_concurrency)
+        self._blocked_until: datetime | None = None
 
     async def search(self, request: SourceRequest) -> SourceResult:
         fetches = 1 if request.nights_min is None else GOOGLE_RETURN_PAIR_COST
         filters = build_filters(request)
         try:
             async with self._semaphore:
+                # Calls queued behind a 429 already passed the engine's pause check.
+                if self._blocked_until is not None and self._clock() < self._blocked_until:
+                    raise SourceBlocked(GOOGLE_RATE_LIMITED)
                 raw = await asyncio.to_thread(
                     self._client.search,
                     filters,
@@ -229,7 +255,8 @@ class GoogleFlightsSource:
             )
         except SearchHTTPError as exc:
             if exc.status_code == 429:
-                raise SourceBlocked("Google Flights limitó las consultas (429)") from exc
+                self._blocked_until = self._clock() + timedelta(minutes=BLOCK_PAUSE_MINUTES)
+                raise SourceBlocked(GOOGLE_RATE_LIMITED) from exc
             return self._failure("error", f"Google respondió {exc.status_code}", fetches)
         except SearchTimeoutError:
             return self._failure("timeout", "Google Flights no respondió a tiempo", fetches)

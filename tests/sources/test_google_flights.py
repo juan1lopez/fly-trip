@@ -1,17 +1,19 @@
+import asyncio
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from fli.models import SortBy, TripType
-from fli.search import SearchConnectionError, SearchHTTPError, SearchTimeoutError
+from fli.search import SearchClientError, SearchConnectionError, SearchHTTPError, SearchTimeoutError
 from fli.search.flights import SearchParseError
 
 from flytrip.sources import google_flights
-from flytrip.sources.base import PauseRegistry, SourceRequest, run_safely
+from flytrip.sources.base import PauseRegistry, SourceBlocked, SourceRequest, run_safely
 from flytrip.sources.google_flights import (
     GOOGLE_PRICE_IS_TOTAL,
     GoogleFlightsSource,
+    RealFliClient,
     build_filters,
     google_search_url,
     normalize_results,
@@ -213,3 +215,44 @@ async def test_exceptions_are_mapped(exc, status, detail):
     assert r.status == status
     if detail:
         assert r.detail == detail
+
+
+async def test_calls_queued_behind_a_429_never_reach_fli():
+    fake = FakeFli(raises=SearchHTTPError("x", status_code=429))
+    source = GoogleFlightsSource(fake, clock=CLOCK, max_concurrency=1)
+    outcomes = await asyncio.gather(
+        *(source.search(PAIR) for _ in range(4)), return_exceptions=True
+    )
+    assert len(fake.calls) == 1
+    assert all(isinstance(o, SourceBlocked) for o in outcomes)
+    assert "429" in outcomes[-1].reason
+
+
+async def test_google_is_called_again_once_the_429_block_expires():
+    moment = [datetime(2026, 11, 9, 15, 0, tzinfo=UTC)]
+    fake = FakeFli(raises=SearchHTTPError("x", status_code=429))
+    source = GoogleFlightsSource(fake, clock=lambda: moment[0])
+    with pytest.raises(SourceBlocked):
+        await source.search(PAIR)
+    with pytest.raises(SourceBlocked):
+        await source.search(PAIR)
+    assert len(fake.calls) == 1
+    moment[0] += timedelta(minutes=61)
+    with pytest.raises(SourceBlocked):
+        await source.search(PAIR)
+    assert len(fake.calls) == 2
+
+
+def test_real_fli_client_makes_one_http_request_per_fetch():
+    class FailingSession:
+        posts = 0
+
+        def post(self, url, **kwargs):
+            FailingSession.posts += 1
+            raise RuntimeError("boom")
+
+    client = RealFliClient()
+    client._client._session = lambda: FailingSession()  # type: ignore[method-assign]
+    with pytest.raises(SearchClientError):
+        client.search(build_filters(ONEWAY), top_n=1, currency="USD", language="es", country="AR")
+    assert FailingSession.posts == 1

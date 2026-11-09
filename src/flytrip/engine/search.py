@@ -23,13 +23,21 @@ from flytrip.core.ranking import (
 )
 from flytrip.engine.cache import SearchCache
 from flytrip.engine.settings import Settings
-from flytrip.sources.base import PauseRegistry, Source, SourceRequest, SourceResult, run_safely
+from flytrip.sources.base import (
+    BLOCK_PAUSE_MINUTES,
+    PauseRegistry,
+    Source,
+    SourceRequest,
+    SourceResult,
+    run_safely,
+)
 from flytrip.sources.google_flights import GOOGLE_FETCH_BUDGET
 from flytrip.sources.kiwi import KIWI_MAX_WINDOW_DAYS
 
 log = logging.getLogger("flytrip.search")
 
 NO_DATES_DETAIL = "Sin fechas para confirmar"
+GOOGLE_SILENT_BLOCK = "Google no devolvió resultados para ninguna fecha (posible bloqueo)"
 
 SourceState = Literal[
     "pending", "running", "ok", "partial", "paused", "error", "timeout", "skipped"
@@ -247,6 +255,13 @@ class SearchEngine:
             it for outcome in outcomes if outcome is not None for it in outcome.itineraries
         ]
         status = self._summary(self.google.name, requests, outcomes, cut, len(confirmed), started)
+        silent = (
+            requests and not confirmed and all(o is not None and o.status == "ok" for o in outcomes)
+        )
+        if silent:
+            # Google answers a block (captcha, consent page) with an empty page: treat it as one.
+            self._pauses.pause(self.google.name, BLOCK_PAUSE_MINUTES, GOOGLE_SILENT_BLOCK)
+            status = status.model_copy(update={"state": "error", "detail": GOOGLE_SILENT_BLOCK})
         return confirmed, status
 
     async def _call_all(

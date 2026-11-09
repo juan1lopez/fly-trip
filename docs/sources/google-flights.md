@@ -15,6 +15,15 @@ Fuente que usa la librería `flights==0.9.0` (se importa como `fli`). Es sincró
 - Ida y vuelta: 1 + `top_n` = 2 descargas (`GOOGLE_RETURN_PAIR_COST`).
 - Presupuesto por búsqueda: `GOOGLE_FETCH_BUDGET = 12`, con un máximo de `GOOGLE_MAX_CONCURRENCY = 3` consultas en paralelo.
 
+## Una descarga es una solicitud HTTP
+
+`fli` 0.9.0 decora `Client.post` y `Client.get` con `tenacity` (`stop_after_attempt(3)`, `wait_exponential()`): una descarga que falla o recibe un 429 se repetía hasta 3 veces sin que lo viéramos, y el presupuesto de 12 descargas podía convertirse en 36 solicitudes. `RealFliClient` usa `_SingleAttemptClient`, que llama al método sin decorar (`__wrapped__`): conserva el limitador de ritmo, el timeout y el mapeo de errores, pero no reintenta. Así, 1 descarga = 1 solicitud y el peor caso queda en 12. Un test con una sesión falsa fija ese comportamiento. Si una versión futura de `fli` cambia el cliente, ese test avisa.
+
+## Qué pasa después de un 429
+
+- La fuente guarda `_blocked_until = ahora + 60 min` al recibir un 429. Las consultas que ya estaban en la cola del semáforo (habían pasado el chequeo de pausa del motor) lo revisan antes de llamar a `fli` y levantan `SourceBlocked` sin hacer ninguna solicitud.
+- El motor además pausa Google 60 minutos (`PauseRegistry`) y las búsquedas siguientes ni lo intentan.
+
 ## Verificación en vivo (Step 1)
 
 NO se pudo completar. El 2026-11-09, desde esta máquina, Google respondió 200 pero con un cuerpo de error
@@ -38,7 +47,7 @@ Como no se pudo grabar, TODOS los fixtures de `tests/fixtures/google/` son sint�
 ## Riesgos
 
 - Google puede limitar o bloquear (429 pausa la fuente 60 minutos) o cambiar el formato (`SearchParseError`: "Google cambió el formato de la página").
-- Respuesta vacía por rechazo silencioso: se ve como "sin resultados", no como error.
+- Respuesta vacía por rechazo silencioso: el §3 del spec cuenta también las páginas de captcha y de consentimiento como bloqueos, y `fli` las entrega como `None` o lista vacía. Si el motor hizo al menos una consulta a Google y TODAS devolvieron 0 itinerarios, lo trata como bloqueo: estado `error` con "Google no devolvió resultados para ninguna fecha (posible bloqueo)" y pausa de 60 minutos. Si solo algunas fechas vienen vacías, no es bloqueo.
 - Sin proxies ni técnicas para esquivar bloqueos.
 
 ## Cómo regrabar
@@ -53,5 +62,5 @@ Escenarios: `madrid_scl_rt` (SCL-MAD, 2027-03-19, 16 noches), `madrid_eze_oneway
 
 - `uv run fly doctor`: `Google Flights ✗ Rota: 0 itinerarios`. Sigue sin responder con `fli` 0.9.0 desde esta máquina.
 - `uv run pytest -m live -q`: el test de 2 adultos se saltó (Google no devuelve nada).
-- En la búsqueda real (escenario 1) la línea de estado fue `Google Flights: OK (0 en 0,6 s)`: una respuesta vacía se ve como "OK con 0", no como error (ver Riesgos). Los resultados de Kiwi se muestran igual.
+- En la búsqueda real (escenario 1) la línea de estado fue `Google Flights: OK (0 en 0,6 s)`; desde entonces una respuesta vacía en todas las fechas se muestra como error y pausa la fuente (ver Riesgos). Los resultados de Kiwi se muestran igual.
 - No insistir con consultas: ya se hicieron varias y no cambia nada. Reintentar solo con `fly doctor`, y de a poco.

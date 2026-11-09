@@ -301,3 +301,27 @@ async def test_origin_failing_in_every_call_is_reported_and_status_is_partial(
 async def test_all_kiwi_calls_ok_stay_ok_without_failed_origins(engine):
     final = (await collect(engine.run(q())))[-1].snapshot
     assert final.statuses["kiwi"].state == "ok" and final.failed_origins == {}
+
+
+async def test_google_returning_nothing_for_every_date_is_reported_as_a_block(
+    tmp_path, clock, pauses
+):
+    google = FakeSource("google", lambda r: SourceResult(source="google", status="ok", fetches=2))
+    engine = build_engine(
+        tmp_path, clock, pauses, kiwi=FakeSource("kiwi", kiwi_answer()), google=google
+    )
+    final = (await collect(engine.run(q())))[-1].snapshot
+    status = final.statuses["google"]
+    reason = "Google no devolvió resultados para ninguna fecha (posible bloqueo)"
+    assert (status.state, status.detail) == ("error", reason)
+    assert pauses.active_pause("google") is not None
+    assert pauses.active_pause("google")[1] == reason
+    calls = len(google.calls)
+    again = (await collect(engine.run(q(), use_cache=False)))[-1].snapshot
+    assert len(google.calls) == calls and again.statuses["google"].state == "paused"
+
+
+async def test_google_with_some_results_is_not_a_block(engine_without_eze_results, pauses):
+    final = (await collect(engine_without_eze_results.run(q())))[-1].snapshot
+    assert final.statuses["google"].state == "ok"
+    assert pauses.active_pause("google") is None
