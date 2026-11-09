@@ -43,3 +43,7 @@ CONTRACT_CASES: list[ContractCase] = [
         "timeout",
     ),
 ]
+
+from tests.contract.cases_google import GOOGLE_CASES  # noqa: E402
+
+CONTRACT_CASES += GOOGLE_CASES
