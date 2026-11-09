@@ -43,3 +43,10 @@ uv run fly record kiwi madrid_scl_return_2adults --origen SCL $D --adultos 2
 ```
 
 Los fixtures `synthetic_*`, `tool_error`, `wrong_currency` y `empty` están escritos a mano. Todos los `.sse` van con saltos de línea LF.
+
+## Verificación en vivo de cierre del hito 1 (2026-11-09)
+
+- `uv run fly doctor`: `Kiwi ✓ OK: 15 itinerarios en 1,7 s`.
+- `uv run pytest -m live -q`: el test de Kiwi pasó (1 passed, 1 skipped; el skip es el de Google).
+- Escenario 1 (`fly search MAD --desde 2027-03-01 --hasta 2027-05-31 --noches 14-21`): 6,1 s de pared en total, 56 pasajes (26 desde MDZ, 15 desde SCL, 15 desde EZE); Kiwi tardó 4,0 s. El más barato: USD 758 desde SCL (más traslado por configurar).
+- Repetición inmediata (escenario 8): 1,5 s, servida desde la caché ("hace 0 min").

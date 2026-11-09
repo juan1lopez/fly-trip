@@ -36,6 +36,14 @@ Se verifican con import-linter dentro de `fly check`:
 - Toda fuente cumple el mismo contrato común de tests.
 - Los tests del navegador llevan la marca `e2e`.
 
+## Lecciones reales
+
+- El hook de edición corre `ruff check --fix` y borra los imports agregados antes de su primer uso: añadir el import junto con su uso.
+- Nunca reformatear `docs/` con ruff (está excluido; reescribe los bloques Python de los Markdown).
+- En Windows, ser explícito con UTF-8: leer `sys.stdin.buffer` y decodificar como UTF-8; usar `PYTHONUTF8=1` para subprocesos y salida de consola.
+- `pytest` común excluye `live`; correr `-m live` solo a propósito, porque usa la red.
+- Google Flights con `fli` 0.9.0 devuelve vacío desde esta máquina y `fly doctor` lo muestra como roto. No insistir.
+
 ## Cómo añadir una fuente
 
 1. Escribir el test de contrato y grabar fixtures en `tests/fixtures/`.

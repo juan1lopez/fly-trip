@@ -48,3 +48,10 @@ uv run python -c "from datetime import date; from pathlib import Path; from flyt
 ```
 
 Escenarios: `madrid_scl_rt` (SCL-MAD, 2027-03-19, 16 noches), `madrid_eze_oneway` (EZE-MAD, 2027-03-07), `madrid_scl_rt_2adults` (como el primero, con 2 adultos).
+
+## Verificación en vivo de cierre del hito 1 (2026-11-09)
+
+- `uv run fly doctor`: `Google Flights ✗ Rota: 0 itinerarios`. Sigue sin responder con `fli` 0.9.0 desde esta máquina.
+- `uv run pytest -m live -q`: el test de 2 adultos se saltó (Google no devuelve nada).
+- En la búsqueda real (escenario 1) la línea de estado fue `Google Flights: OK (0 en 0,6 s)`: una respuesta vacía se ve como "OK con 0", no como error (ver Riesgos). Los resultados de Kiwi se muestran igual.
+- No insistir con consultas: ya se hicieron varias y no cambia nada. Reintentar solo con `fly doctor`, y de a poco.
