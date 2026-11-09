@@ -61,6 +61,10 @@ plugins = ["pydantic.mypy"]
 module = ["flytrip.core.*", "flytrip.engine.*"]
 strict = true
 
+[[tool.mypy.overrides]]
+module = ["fli", "fli.*"]
+ignore_missing_imports = true
+
 [tool.importlinter]
 root_package = "flytrip"
 
