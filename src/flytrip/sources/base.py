@@ -51,6 +51,7 @@ class PauseRegistry:
     def __init__(self, path: Path, clock: Callable[[], datetime]) -> None:
         self._path = path
         self._clock = clock
+        self._memory: dict[str, dict[str, str]] = {}
 
     def _load(self) -> dict[str, dict[str, str]]:
         try:
@@ -60,22 +61,27 @@ class PauseRegistry:
         return data if isinstance(data, dict) else {}
 
     def pause(self, source: str, minutes: int, reason: str) -> None:
-        data = self._load()
         until = self._clock() + timedelta(minutes=minutes)
-        data[source] = {"until": until.isoformat(), "reason": reason}
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        entry = {"until": until.isoformat(), "reason": reason}
+        self._memory[source] = entry
+        try:
+            data = self._load()
+            data[source] = entry
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        except (OSError, TypeError, ValueError):
+            pass  # best effort: the in-memory pause still applies
 
     def active_pause(self, source: str) -> tuple[datetime, str] | None:
-        entry = self._load().get(source)
-        if not isinstance(entry, dict):
-            return None
         try:
+            entry = self._memory.get(source) or self._load().get(source)
+            if not isinstance(entry, dict):
+                return None
             until = datetime.fromisoformat(entry["until"])
             reason = str(entry["reason"])
-        except (KeyError, ValueError, TypeError):
-            return None
-        if until <= self._clock():
+            if until.tzinfo is None or until <= self._clock():
+                return None
+        except Exception:
             return None
         return until, reason
 

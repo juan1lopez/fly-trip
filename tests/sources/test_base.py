@@ -95,6 +95,29 @@ def test_corrupt_pause_file_means_no_pauses(tmp_path):
     assert pauses.active_pause("g") is not None
 
 
+async def test_blocked_with_unwritable_pause_file_still_returns_paused(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("x", encoding="utf-8")
+    pauses = PauseRegistry(blocker / "p.json", CLOCK)
+    r = await run_safely(
+        FakeSource("g", lambda r: SourceBlocked("429")),
+        REQ,
+        timeout_s=1,
+        pauses=pauses,
+        clock=CLOCK,
+    )
+    assert (r.status, r.detail) == ("paused", "En pausa hasta las 13:00: 429")
+    assert pauses.active_pause("g") is not None
+
+
+def test_naive_stored_until_means_no_pause(tmp_path):
+    path = tmp_path / "p.json"
+    path.write_text(
+        json.dumps({"g": {"until": "2099-01-01T00:00:00", "reason": "x"}}), encoding="utf-8"
+    )
+    assert PauseRegistry(path, CLOCK).active_pause("g") is None
+
+
 def test_creates_parent_directories(tmp_path):
     path = tmp_path / "a" / "b" / "p.json"
     PauseRegistry(path, CLOCK).pause("g", 5, "x")
