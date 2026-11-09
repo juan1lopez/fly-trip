@@ -1,9 +1,9 @@
 """Presentation helpers shared by the CLI and the web UI."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from flytrip.core.models import Itinerary, Leg
+from flytrip.core.models import Baggage, Itinerary, Leg
 from flytrip.engine.search import SourceStatus
 
 ORIGIN_LABELS = {
@@ -71,3 +71,29 @@ def status_label(status: SourceStatus) -> str:
             return f"{name}: esperando"
         case "running":
             return f"{name}: buscando…"
+
+
+def baggage_label(baggage: Baggage | None) -> str:
+    if baggage is None:
+        return "desconocido"
+    included = [
+        label
+        for label, count in (
+            ("mochila", baggage.personal_item),
+            ("cabina", baggage.cabin_bag),
+            ("valija", baggage.checked_bag),
+        )
+        if count
+    ]
+    return " + ".join(included) if included else "sin equipaje incluido"
+
+
+def age_label(fetched_at: datetime, now: datetime) -> str:
+    minutes = max(0, int((now - fetched_at).total_seconds() // 60))
+    if minutes < 1:
+        return "hace instantes"
+    if minutes < 60:
+        return f"hace {minutes} min"
+    if minutes < 60 * 24:
+        return f"hace {minutes // 60} h"
+    return f"hace {minutes // (60 * 24)} d"

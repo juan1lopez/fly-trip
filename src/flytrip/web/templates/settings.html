@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Ajustes · fly-trip{% endblock %}
+{% block content %}
+<h1>Ajustes</h1>
+{% if errors %}{% include "_errors.html" %}{% endif %}
+{% if saved %}<p class="ok">Ajustes guardados.</p>{% endif %}
+<form action="/ajustes" method="post">
+  <fieldset>
+    <legend>Orígenes por defecto</legend>
+    {% for code in all_origins %}
+    <label class="inline">
+      <input type="checkbox" name="origenes" value="{{ code }}"{% if code in settings.default_origins %} checked{% endif %}>
+      {{ origin_label(code) }}
+    </label>
+    {% endfor %}
+  </fieldset>
+  <label>Adultos <input type="number" name="adultos" value="{{ settings.adults }}" min="1" max="9"></label>
+  <label class="inline"><input type="checkbox" name="separados" value="1"{% if settings.allow_separate_tickets %} checked{% endif %}> Permitir pasajes separados</label>
+  <label>Valor de tu hora de viaje (USD por hora)
+    <input name="usd_por_hora" value="{{ settings.usd_per_hour }}">
+  </label>
+  {% for code in ("SCL", "EZE") %}
+  {% set transfer = settings.transfers.get(code) %}
+  <fieldset>
+    <legend>Traslado desde Mendoza a {{ origin_label(code) }}</legend>
+    <p class="note">Déjalo vacío si todavía no lo configuraste.</p>
+    <label>Costo ida y vuelta (USD)
+      <input name="traslado_{{ code }}_costo" value="{{ transfer.cost_usd_roundtrip if transfer else '' }}">
+    </label>
+    <label>Horas de viaje (un tramo)
+      <input name="traslado_{{ code }}_horas" value="{{ transfer.hours_one_way if transfer else '' }}">
+    </label>
+  </fieldset>
+  {% endfor %}
+  <button type="submit">Guardar</button>
+</form>
+{% endblock %}
