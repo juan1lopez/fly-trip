@@ -19,6 +19,7 @@ from flytrip.engine.paths import home_dir, logs_dir
 from flytrip.engine.search import SearchEngine, SearchSnapshot, SnapshotEvent
 from flytrip.sources.kiwi import utc_now
 from flytrip.web.views import (
+    baggage_label,
     format_short_date,
     format_usd,
     price_breakdown,
@@ -80,10 +81,6 @@ def _itinerary_row(index: int, it: Itinerary) -> tuple[str, ...]:
         stops += f" / {it.inbound.stops}"
     legs = (it.outbound, it.inbound) if it.inbound is not None else (it.outbound,)
     airlines = dict.fromkeys(s.carrier_name for leg in legs for s in leg.segments)
-    if it.baggage is None:
-        baggage = "s/d"
-    else:
-        baggage = "con valija" if it.baggage.checked_bag else "sin valija"
     sources = ", ".join(dict.fromkeys(SOURCE_NAMES.get(o.source, o.source) for o in it.offers))
     return (
         str(index),
@@ -93,7 +90,7 @@ def _itinerary_row(index: int, it: Itinerary) -> tuple[str, ...]:
         dates,
         stops,
         escape(", ".join(airlines)),
-        baggage,
+        baggage_label(it.baggage),
         sources,
     )
 

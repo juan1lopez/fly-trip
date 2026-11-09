@@ -34,3 +34,19 @@ def test_status_label():
     pending = SourceStatus(source="google", state="pending")
     assert status_label(pending) == "Google Flights: esperando"
     assert status_label(SourceStatus(source="kiwi", state="running")) == "Kiwi: buscando…"
+
+
+def test_baggage_label_covers_every_case():
+    from flytrip.core.models import Baggage
+    from flytrip.web.views import baggage_label
+
+    assert baggage_label(None) == "desconocido"
+    assert baggage_label(Baggage(personal_item=0, cabin_bag=0, checked_bag=0)) == (
+        "sin equipaje incluido"
+    )
+    assert baggage_label(Baggage(personal_item=1, cabin_bag=None, checked_bag=1)) == (
+        "mochila + valija"
+    )
+    assert baggage_label(Baggage(personal_item=1, cabin_bag=1, checked_bag=1)) == (
+        "mochila + cabina + valija"
+    )

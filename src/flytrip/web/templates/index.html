@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Buscar pasajes · fly-trip{% endblock %}
+{% block content %}
+<h1>Buscar pasajes baratos</h1>
+<form id="search-form" action="/buscar/stream" method="get">
+  <label>Destino (código IATA)
+    <input name="destino" value="" maxlength="3" placeholder="MAD" required>
+  </label>
+  <label>Salir desde <input type="date" name="desde" required></label>
+  <label>Salir hasta <input type="date" name="hasta" required></label>
+  <label>Noches mínimas <input type="number" name="noches_min" min="1" max="60" value="14"></label>
+  <label>Noches máximas <input type="number" name="noches_max" min="1" max="60" value="21"></label>
+  <label class="inline"><input type="checkbox" name="solo_ida" value="1"> Solo ida</label>
+  <fieldset>
+    <legend>Orígenes</legend>
+    {% for code in all_origins %}
+    <label class="inline">
+      <input type="checkbox" name="origenes" value="{{ code }}"{% if code in settings.default_origins %} checked{% endif %}>
+      {{ origin_label(code) }}
+    </label>
+    {% endfor %}
+  </fieldset>
+  <label>Adultos <input type="number" name="adultos" value="{{ settings.adults }}" min="1" max="9"></label>
+  <label class="inline"><input type="checkbox" name="separados" value="1"{% if settings.allow_separate_tickets %} checked{% endif %}> Permitir pasajes separados</label>
+  <button type="submit">Buscar</button>
+</form>
+<div id="errors" role="alert"></div>
+<section id="status" aria-live="polite"></section>
+<section id="results"></section>
+{% endblock %}
+{% block scripts %}<script src="/static/app.js"></script>{% endblock %}
