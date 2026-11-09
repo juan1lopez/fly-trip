@@ -1,0 +1,3 @@
+event: message
+data: {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "{\"query\": {\"flyFrom\": \"MDZ\", \"flyTo\": \"MAD\"}, \"currency\": \"USD\", \"passengers\": {\"adults\": 1, \"children\": 0, \"infants\": 0}, \"resultsCount\": 0, \"itineraries\": [], \"searchTimeMs\": 100, \"error\": null}"}], "structuredContent": {"query": {"flyFrom": "MDZ", "flyTo": "MAD"}, "currency": "USD", "passengers": {"adults": 1, "children": 0, "infants": 0}, "resultsCount": 0, "itineraries": [], "searchTimeMs": 100, "error": null}, "isError": false}}
+

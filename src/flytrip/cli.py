@@ -3,8 +3,11 @@ from typing import Annotated
 import typer
 
 from flytrip.devtools.check import build_check_steps, run_check_steps
+from flytrip.devtools.record import record_app
 
 app = typer.Typer(help="fly-trip: buscador personal de pasajes baratos.", no_args_is_help=True)
+
+app.add_typer(record_app, name="record")
 
 
 @app.callback()

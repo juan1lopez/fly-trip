@@ -43,3 +43,6 @@ CONTRACT_CASES: list[ContractCase] = [
         "timeout",
     ),
 ]
+from tests.contract.cases_kiwi import KIWI_CASES  # noqa: E402
+
+CONTRACT_CASES += KIWI_CASES
