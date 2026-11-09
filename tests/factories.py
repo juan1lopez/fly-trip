@@ -77,6 +77,34 @@ def make_itinerary(
     )
 
 
+def itin_on(origin: str, depart_iso: str, return_iso: str, price: int) -> Itinerary:
+    """Kiwi-like return trip to MAD, one segment per leg, departing on the given dates."""
+    outbound = build_leg(
+        [seg("IB", "6830", origin, "MAD", f"{depart_iso}T00:50", f"{depart_iso}T17:30")], 780
+    )
+    inbound = build_leg(
+        [seg("IB", "6831", "MAD", origin, f"{return_iso}T09:00", f"{return_iso}T20:00")], 780
+    )
+    return Itinerary(
+        id=f"{origin}-{depart_iso}-{return_iso}",
+        origin=origin,
+        destination="MAD",
+        trip_type="return",
+        outbound=outbound,
+        inbound=inbound,
+        offers=(
+            Offer(
+                source="kiwi",
+                price_usd=Decimal(price),
+                booking_url="https://kiwi.example/x",
+                fetched_at=FETCHED,
+            ),
+        ),
+        baggage=None,
+        separate_tickets=None,
+    )
+
+
 def make_query(**kw: Any) -> SearchQuery:
     values: dict[str, Any] = {
         "destination": "MAD",
