@@ -52,3 +52,15 @@ def test_baggage_label_covers_every_case():
     assert baggage_label(Baggage(personal_item=1, cabin_bag=1, checked_bag=1)) == (
         "mochila + cabina + valija"
     )
+
+
+def test_month_options_offer_the_next_12_months() -> None:
+    from datetime import date
+
+    from flytrip.web.views import month_options
+
+    options = month_options(date(2026, 11, 9))
+    assert len(options) == 12
+    assert options[0] == ("2026-11", "Nov 2026")
+    assert ("2027-07", "Jul 2027") in options
+    assert options[-1][0] == "2027-10"
