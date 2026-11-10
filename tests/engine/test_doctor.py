@@ -48,17 +48,45 @@ async def test_run_doctor_builds_requests_and_never_raises(tmp_path):
         "kiwi", lambda r: SourceResult(source="kiwi", status="ok", itineraries=(make_itinerary(),))
     )
     google = FakeSource("google", lambda r: RuntimeError("boom"))
+    skiplagged = FakeSource(
+        "skiplagged",
+        lambda r: SourceResult(source="skiplagged", status="ok", itineraries=(make_itinerary(),)),
+    )
     health = await run_doctor(
         kiwi,
         google,
+        skiplagged,
         today=date(2026, 11, 9),
         pauses=PauseRegistry(tmp_path / "p.json", CLOCK),
         clock=CLOCK,
     )
-    assert [(h.source, h.ok) for h in health] == [("kiwi", True), ("google", False)]
+    assert [(h.source, h.ok) for h in health] == [
+        ("kiwi", True),
+        ("google", False),
+        ("skiplagged", True),
+    ]
     k = kiwi.calls[0]
     assert (k.origin, k.destination) == ("SCL", "MAD")
     assert (k.depart_from, k.depart_to) == (date(2026, 12, 9), date(2026, 12, 23))
     assert k.nights_min == k.nights_max == 14
     g = google.calls[0]
     assert g.depart_from == g.depart_to == date(2026, 12, 9)
+    s = skiplagged.calls[0]
+    assert (s.origin, s.destination) == ("SCL", "MAD")
+    assert s.depart_from == s.depart_to == date(2026, 12, 9)
+    assert s.nights_min == s.nights_max == 14
+    assert s.allow_separate_tickets is False
+
+
+async def test_run_doctor_skiplagged_failure_is_a_broken_health(tmp_path):
+    ok = SourceResult(source="kiwi", status="ok", itineraries=(make_itinerary(),))
+    health = await run_doctor(
+        FakeSource("kiwi", lambda r: ok),
+        FakeSource("google", lambda r: ok),
+        FakeSource("skiplagged", lambda r: RuntimeError("boom")),
+        today=date(2026, 11, 9),
+        pauses=PauseRegistry(tmp_path / "p.json", CLOCK),
+        clock=CLOCK,
+    )
+    assert health[2].source == "skiplagged" and not health[2].ok
+    assert health[2].detail.startswith("Rota:")

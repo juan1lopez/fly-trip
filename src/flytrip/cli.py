@@ -263,13 +263,14 @@ def search(
 
 @app.command()
 def doctor() -> None:
-    """Comprueba que Kiwi y Google Flights responden con datos válidos."""
+    """Comprueba que Kiwi, Google Flights y Skiplagged responden con datos válidos."""
     home = home_dir()
     engine = engine_factory(home)
     health = asyncio.run(
         run_doctor(
             engine.kiwi,
             engine.google,
+            engine.skiplagged,
             today=today_in_mendoza(utc_now()),
             pauses=PauseRegistry(data_dir(home) / "pauses.json", utc_now),
             clock=utc_now,

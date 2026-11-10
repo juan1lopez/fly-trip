@@ -15,6 +15,7 @@ async def test_live_sources_are_healthy(tmp_path):
     health = await run_doctor(
         engine.kiwi,
         engine.google,
+        engine.skiplagged,
         today=today_in_mendoza(datetime.now(UTC)),
         pauses=PauseRegistry(tmp_path / "p.json", utc_now),
         clock=utc_now,

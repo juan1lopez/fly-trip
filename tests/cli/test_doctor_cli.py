@@ -12,7 +12,13 @@ def _engine(google_result: SourceResult) -> SimpleNamespace:
     kiwi = FakeSource(
         "kiwi", lambda r: SourceResult(source="kiwi", status="ok", itineraries=(make_itinerary(),))
     )
-    return SimpleNamespace(kiwi=kiwi, google=FakeSource("google", lambda r: google_result))
+    skiplagged = FakeSource(
+        "skiplagged",
+        lambda r: SourceResult(source="skiplagged", status="ok", itineraries=(make_itinerary(),)),
+    )
+    return SimpleNamespace(
+        kiwi=kiwi, google=FakeSource("google", lambda r: google_result), skiplagged=skiplagged
+    )
 
 
 def test_doctor_exits_1_when_a_source_is_broken(monkeypatch, tmp_path):
@@ -47,6 +53,12 @@ def test_doctor_reports_format_changes_of_both_real_sources(monkeypatch, tmp_pat
         engine = SimpleNamespace(
             kiwi=KiwiSource(httpx.AsyncClient()),
             google=GoogleFlightsSource(FakeFli(raises=SearchParseError("shape changed"))),
+            skiplagged=FakeSource(
+                "skiplagged",
+                lambda r: SourceResult(
+                    source="skiplagged", status="ok", itineraries=(make_itinerary(),)
+                ),
+            ),
         )
         monkeypatch.setattr(cli, "engine_factory", lambda home: engine)
         result = CliRunner().invoke(cli.app, ["doctor"])
