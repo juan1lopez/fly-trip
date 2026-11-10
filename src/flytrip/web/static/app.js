@@ -35,6 +35,7 @@
     monthFields.hidden = mode !== "mes";
     dateFields.hidden = mode === "mes";
     toggle.textContent = mode === "mes" ? "Fechas exactas" : "Buscar por mes";
+    toggle.setAttribute("aria-expanded", mode === "mes" ? "false" : "true");
   }
 
   toggle.addEventListener("click", function () {
@@ -69,19 +70,20 @@
     });
   });
 
-  // A calendar day switches to exact dates for that day and that origin, same nights, and searches.
+  // A calendar day searches exact dates for that day and that origin, keeping everything else
+  // of the search that drew the calendar (lastParams). The form itself is not touched.
   resultsEl.addEventListener("click", function (event) {
     var button = event.target.closest && event.target.closest("button[data-day]");
     if (!button) return;
-    var day = button.dataset.day;
-    var origin = button.dataset.origin;
-    setMode("fechas");
-    form.elements["desde"].value = day;
-    form.elements["hasta"].value = day;
-    Array.prototype.forEach.call(form.querySelectorAll("input[name=origenes]"), function (box) {
-      box.checked = box.value === origin;
-    });
-    run(new URLSearchParams(new FormData(form)).toString(), false);
+    var params = new URLSearchParams(
+      lastParams || new URLSearchParams(new FormData(form)).toString()
+    );
+    params.set("modo", "fechas");
+    params.set("desde", button.dataset.day);
+    params.set("hasta", button.dataset.day);
+    params.delete("origenes");
+    params.append("origenes", button.dataset.origin);
+    run(params.toString(), false);
   });
 
   // "Actualizar" re-runs the same search, ignoring the cache; later edits to the form do not count.
@@ -91,9 +93,15 @@
     }
   });
 
+  // aria-busy keeps screen readers from announcing every partial update of #results.
+  function busy(on) {
+    resultsEl.setAttribute("aria-busy", on ? "true" : "false");
+  }
+
   function run(params, refresh) {
     lastParams = params;
     close();
+    busy(true);
     errorsEl.innerHTML = "";
     statusEl.innerHTML = "";
     resultsEl.innerHTML = "";
@@ -108,14 +116,18 @@
         if (stale()) return;
         if (response.status === 422) {
           return response.text().then(function (html) {
-            if (!stale()) errorsEl.innerHTML = html;
+            if (stale()) return;
+            errorsEl.innerHTML = html;
+            busy(false);
           });
         }
         if (!response.ok) throw new Error("validate");
         stream("/buscar/stream?" + params + (refresh ? "&refrescar=1" : ""), stale);
       })
       .catch(function () {
-        if (!stale()) errorsEl.innerHTML = "<p>No se pudo completar la búsqueda.</p>";
+        if (stale()) return;
+        errorsEl.innerHTML = "<p>No se pudo completar la búsqueda.</p>";
+        busy(false);
       });
   }
 
@@ -126,6 +138,7 @@
     function finish() {
       finished = true;
       close();
+      if (!stale()) busy(false);
     }
     source.addEventListener("status", function (e) {
       if (stale()) return finish();

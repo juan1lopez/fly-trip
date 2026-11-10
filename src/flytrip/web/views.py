@@ -70,7 +70,8 @@ def status_label(status: SourceStatus) -> str:
     match status.state:
         case "ok":
             seconds = f"{(status.latency_ms or 0) / 1000:.1f}".replace(".", ",")
-            return f"{name}: OK ({status.count} en {seconds} s)"
+            note = f" — {status.detail}" if status.detail else ""
+            return f"{name}: OK ({status.count} en {seconds} s){note}"
         case "partial":
             return f"{name}: parcial — {status.detail}"
         case "paused":
@@ -119,7 +120,8 @@ class CalendarCell:
     price: Decimal | None = None
     origin: str | None = None
     cheap: bool = False
-    cheapest: bool = False
+    cheapest: bool = False  # the cheapest day of its month
+    past: bool = False  # before the first day of the search window
     aria_label: str = ""
 
 
@@ -146,7 +148,9 @@ def calendar_months(snapshot: SearchSnapshot) -> list[MonthView]:
         return []
     by_day = {d.day: d for d in snapshot.calendar}
     cheap = cheap_days(snapshot.calendar)
-    cheapest = min(snapshot.calendar, key=lambda d: (d.price_usd, d.day)).day if by_day else None
+    cheapest_of_month: dict[tuple[int, int], date] = {}
+    for ranked in sorted(snapshot.calendar, key=lambda d: (d.price_usd, d.day)):
+        cheapest_of_month.setdefault((ranked.day.year, ranked.day.month), ranked.day)
     months: list[MonthView] = []
     year, month = query.depart_from.year, query.depart_from.month
     while (year, month) <= (query.depart_to.year, query.depart_to.month):
@@ -159,11 +163,13 @@ def calendar_months(snapshot: SearchSnapshot) -> list[MonthView]:
                     continue
                 entry = by_day.get(day)
                 if entry is None:
-                    row.append(CalendarCell(day=day))
+                    row.append(CalendarCell(day=day, past=day < query.depart_from))
                     continue
+                is_cheapest = cheapest_of_month.get((year, month)) == day
                 label = (
                     f"{_day_label(day)}: desde {format_usd(entry.price_usd)}, "
-                    f"{origin_label(entry.origin).lower()}. Buscar este día"
+                    f"{origin_label(entry.origin).lower()}, precio orientativo"
+                    f"{', el más barato del mes' if is_cheapest else ''}. Buscar este día"
                 )
                 row.append(
                     CalendarCell(
@@ -171,7 +177,7 @@ def calendar_months(snapshot: SearchSnapshot) -> list[MonthView]:
                         price=entry.price_usd,
                         origin=entry.origin,
                         cheap=day in cheap,
-                        cheapest=day == cheapest,
+                        cheapest=is_cheapest,
                         aria_label=label,
                     )
                 )

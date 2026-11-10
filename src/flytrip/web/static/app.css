@@ -89,6 +89,7 @@ button.day:hover { outline: 2px solid var(--lime); }
 .day.cheapest { outline: 2px solid var(--white); outline-offset: 1px; }
 .day .star { position: absolute; top: 1px; right: 4px; font-size: 10px; }
 .day.blank { background: transparent; }
+.day.past { background: transparent; color: var(--grey); opacity: 0.6; }
 .day.nodata { background: transparent; border: 1px dashed var(--line); color: var(--grey); }
 .cal-empty { padding: 8px 0; }
 

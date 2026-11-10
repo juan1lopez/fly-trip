@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 
@@ -17,8 +19,23 @@ def test_search_flow(page, demo_server):
     assert not page.locator("text=Google Flights: OK").is_visible()  # Google demo tarda 1,5 s
     page.wait_for_selector("text=Google Flights: OK")
     assert page.locator(".origin-cards >> text=Vía Santiago").is_visible()
+    # Every card's route leaves from its own origin (the demo replays never cross fixtures).
+    mdz_card = page.locator(".origin-card", has_text="Mendoza")
+    assert mdz_card.get_by_text(re.compile(r"· MDZ →")).count() == 1
+    assert page.locator("#results").get_attribute("aria-busy") == "false"
     hrefs = page.locator("a:has-text('Comprar')").evaluate_all("els => els.map(e => e.href)")
     assert hrefs and all(h.startswith("https://") for h in hrefs)
+
+
+@pytest.mark.e2e
+def test_mode_toggle_reports_expanded_state(page, demo_server):
+    page.goto(demo_server)
+    toggle = page.locator("#toggle-mode")
+    assert toggle.get_attribute("aria-expanded") == "false"
+    toggle.click()
+    assert toggle.get_attribute("aria-expanded") == "true"
+    toggle.click()
+    assert toggle.get_attribute("aria-expanded") == "false"
 
 
 @pytest.mark.e2e
@@ -57,15 +74,23 @@ def test_month_search_shows_calendar_and_a_day_click_searches_exact_dates(page, 
     assert page.locator(".origin-card.best").count() == 1
     cheapest = page.locator(".calendar button.cheapest").first
     day, origin = cheapest.get_attribute("data-day"), cheapest.get_attribute("data-origin")
-    assert cheapest.get_attribute("aria-label")
-    cheapest.click()
-    assert page.input_value("input[name=modo]") == "fechas"
-    assert page.input_value("input[name=desde]") == day == page.input_value("input[name=hasta]")
-    assert page.locator("input[name=origenes]:checked").evaluate_all(
+    label = cheapest.get_attribute("aria-label")
+    assert "orientativo" in label and "el más barato del mes" in label
+    form_origins = page.locator("input[name=origenes]:checked").evaluate_all(
         "els => els.map(e => e.value)"
-    ) == [origin]
+    )
+    with page.expect_request(lambda r: "/buscar/stream" in r.url and f"desde={day}" in r.url):
+        cheapest.click()
+    # The click searches from the last search's parameters; the form is left as it was.
+    assert page.input_value("input[name=modo]") == "mes"
+    assert (
+        page.locator("input[name=origenes]:checked").evaluate_all("els => els.map(e => e.value)")
+        == form_origins
+    )
     page.wait_for_selector("text=Kiwi: OK")
     page.wait_for_selector("text=Skiplagged: OK")
     page.wait_for_selector(".itinerary")
     assert page.locator(".calendar").count() == 0  # exact dates: no calendar
+    routes = page.locator(".origin-card .breakdown").all_inner_texts()
+    assert any(f"· {origin} →" in text for text in routes)
     page.wait_for_selector("text=Google Flights: OK")

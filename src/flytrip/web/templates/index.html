@@ -28,7 +28,7 @@
           <label class="field"><small>Salir hasta</small><input type="date" name="hasta"></label>
         </div>
       </div>
-      <button type="button" class="link" id="toggle-mode" aria-controls="date-fields">Fechas exactas</button>
+      <button type="button" class="link" id="toggle-mode" aria-controls="date-fields" aria-expanded="false">Fechas exactas</button>
 
       <div class="two">
         <label class="field"><small>Noches mín.</small><input type="number" name="noches_min" min="1" max="60" value="14"></label>
@@ -59,7 +59,7 @@
   </div>
   <div class="main-col">
     <div id="errors" role="alert"></div>
-    <section id="results" aria-live="polite">
+    <section id="results" aria-live="polite" aria-busy="false">
       <div class="card empty-state">
         <p class="display">Elige meses y busca.</p>
         <p class="muted">Te mostramos el día de salida más barato de cada mes y los mejores pasajes desde tus orígenes.</p>

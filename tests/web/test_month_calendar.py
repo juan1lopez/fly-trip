@@ -69,7 +69,7 @@ def test_calendar_months_cover_the_query_window_and_mark_cheap_days():
     assert cells[date(2027, 3, 11)].price is None  # no data for that day
     assert cells[date(2027, 3, 15)].origin == "SCL"
     assert "15 de marzo" in cells[date(2027, 3, 15)].aria_label
-    assert sum(c.cheapest for c in cells.values()) == 1
+    assert sum(c.cheapest for c in cells.values()) == 2  # one per month
 
 
 def test_calendar_months_empty_without_calendar_mode():
@@ -133,10 +133,12 @@ def test_calendar_renders_clickable_days_with_cheap_ones_marked(settings_store):
 
 
 def test_calendar_without_data_says_not_available(settings_store):
-    snapshot = calendar_snapshot([], note="Skiplagged no respondió")
+    snapshot = calendar_snapshot([], note="Calendario no disponible: Skiplagged no respondió")
     client, _ = recording_client(settings_store, snapshot)
     html = unescape(_results(client, MONTH_QS))
-    assert "no disponible" in html and "Skiplagged no respondió" in html
+    # The engine's note is shown as it is, not wrapped in a second "no disponible".
+    assert html.count("Calendario no disponible") == 1
+    assert "Calendario no disponible: Skiplagged no respondió" in html
     assert "data-day=" not in html and 'class="itinerary"' in html
 
 
@@ -152,3 +154,51 @@ def test_best_origin_card_is_marked(settings_store):
     html = _results(client, QS)
     assert html.count("origin-card best") == 1
     assert html.index("origin-card best") < html.index("Vía Santiago") < html.index("Vía Ezeiza")
+
+
+def test_cheapest_day_is_marked_once_per_month_with_accessible_labels():
+    days = [
+        ("2027-03-12", "900", "MDZ"),
+        ("2027-03-15", "700", "SCL"),
+        ("2027-04-02", "800", "EZE"),
+        ("2027-04-03", "850", "EZE"),
+    ]
+    months = calendar_months(calendar_snapshot(days))
+    cells = {c.day: c for m in months for w in m.weeks for c in w if c}
+    cheapest = {d for d, c in cells.items() if c.cheapest}
+    assert cheapest == {date(2027, 3, 15), date(2027, 4, 2)}
+    assert "el más barato del mes" in cells[date(2027, 3, 15)].aria_label
+    assert "el más barato del mes" not in cells[date(2027, 3, 12)].aria_label
+    assert "orientativo" in cells[date(2027, 3, 12)].aria_label
+
+
+def test_days_before_the_window_start_are_past():
+    months = calendar_months(calendar_snapshot([("2027-03-12", "900", "MDZ")]))
+    cells = {c.day: c for m in months for w in m.weeks for c in w if c}
+    assert cells[date(2027, 3, 9)].past and not cells[date(2027, 3, 10)].past
+    assert not cells[date(2027, 3, 11)].past and cells[date(2027, 3, 11)].price is None
+
+
+def test_calendar_still_loading_says_so(settings_store):
+    snapshot = calendar_snapshot([]).model_copy(update={"calendar_pending": True})
+    client, _ = recording_client(settings_store, snapshot)
+    html = unescape(_results(client, MONTH_QS))
+    assert "Calendario: consultando Skiplagged…" in html and "no disponible" not in html
+
+
+def test_ok_status_shows_its_detail():
+    from flytrip.engine.search import SourceStatus
+    from flytrip.web.views import status_label
+
+    status = SourceStatus(
+        source="skiplagged", state="ok", latency_ms=1000, count=2, detail="Se descartaron 3"
+    )
+    assert status_label(status) == "Skiplagged: OK (2 en 1,0 s) — Se descartaron 3"
+
+
+def test_index_has_accessibility_state_for_results_and_mode_toggle(client):
+    html = client.get("/").text
+    assert 'id="results" aria-live="polite" aria-busy="false"' in html
+    assert 'id="toggle-mode"' in html and 'aria-expanded="false"' in html
+    js = client.get("/static/app.js").text
+    assert "aria-busy" in js and "aria-expanded" in js and "lastParams" in js

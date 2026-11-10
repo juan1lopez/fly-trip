@@ -53,7 +53,7 @@
     <span class="muted small">precio más bajo por día de salida · precio orientativo (Skiplagged)</span>
   </div>
   {% if not snapshot.calendar %}
-  <p class="empty cal-empty">Calendario no disponible{% if snapshot.calendar_note %}: {{ snapshot.calendar_note }}{% endif %}.</p>
+  <p class="empty cal-empty">{% if snapshot.calendar_pending %}Calendario: consultando Skiplagged…{% else %}{{ snapshot.calendar_note or "Calendario no disponible" }}{% endif %}</p>
   {% else %}
   {% if snapshot.calendar_note %}<p class="note">{{ snapshot.calendar_note }}</p>{% endif %}
   <p class="note small">Toca un día para buscar pasajes con salida ese día. Los días sin dato figuran como no disponible.</p>
@@ -63,6 +63,7 @@
     {% for dow in ("Lu", "Ma", "Mi", "Ju", "Vi", "Sá", "Do") %}<div class="dow" aria-hidden="true">{{ dow }}</div>{% endfor %}
     {% for week in month.weeks %}{% for cell in week %}
       {% if cell is none %}<div class="day blank"></div>
+      {% elif cell.past %}<div class="day past" title="pasado">{{ cell.day.day }}<i>pasado</i></div>
       {% elif cell.price is none %}<div class="day nodata" title="no disponible">{{ cell.day.day }}<i>—</i></div>
       {% else %}<button type="button" class="day{% if cell.cheap %} cheap{% endif %}{% if cell.cheapest %} cheapest{% endif %}" data-day="{{ cell.day.isoformat() }}" data-origin="{{ cell.origin }}" aria-label="{{ cell.aria_label }}">{{ cell.day.day }}<i>{{ format_number(cell.price) }}</i>{% if cell.cheapest %}<b class="star" aria-hidden="true">★</b>{% endif %}</button>
       {% endif %}

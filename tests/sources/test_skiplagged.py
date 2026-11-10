@@ -20,6 +20,7 @@ from flytrip.sources.skiplagged import (
     build_search_arguments,
     normalize_calendar,
     normalize_search,
+    normalize_search_counted,
     parse_response,
 )
 from tests.factories import CLOCK, FETCHED, fixture
@@ -516,3 +517,12 @@ async def test_search_reports_raw_and_dropped_counts():
     result = await _paced(handler, FakeTime(), min_interval_s=0).search(EXACT)
     assert result.raw_count is not None and result.raw_count > len(result.itineraries)
     assert result.dropped >= 1
+
+
+def test_zero_or_negative_prices_are_dropped():
+    rpc = parse_response(fixture("skiplagged", "synthetic_rt.sse"))
+    flights = rpc["result"]["structuredContent"]["flights"]
+    before = len(normalize_search(rpc, origin="SCL", adults=2, fetched_at=FETCHED))
+    flights[0]["price"]["amount"] = 0
+    items, raw, dropped = normalize_search_counted(rpc, origin="SCL", adults=2, fetched_at=FETCHED)
+    assert len(items) == before - 1 and dropped >= 1 and raw == len(flights)

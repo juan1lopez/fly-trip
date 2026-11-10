@@ -24,23 +24,31 @@ SKIPLAGGED_DELAY_S = 1.0
 CALENDAR_FIXTURE_ANCHOR = date(2027, 3, 15)
 
 
-def _kiwi_fixture(request: SourceRequest) -> str:
+def _kiwi_fixture(request: SourceRequest) -> str | None:
+    """The recorded Kiwi answer for the origin, or None: a fixture only answers its own origin."""
     if request.origin == "MDZ":
         return (
             "madrid_mdz_return_all"
             if request.allow_separate_tickets
             else ("madrid_mdz_return_protected")
         )
-    return {"SCL": "madrid_scl_return", "EZE": "madrid_eze_return"}.get(
-        request.origin, "madrid_scl_return"
-    )
+    return {"SCL": "madrid_scl_return", "EZE": "madrid_eze_return"}.get(request.origin)
+
+
+def _no_fixture(source: str) -> SourceResult:
+    """Nothing recorded for this origin. `raw_count=1` keeps the engine from reading the empty
+    answer as a silent block: the demo source did answer, just not for this origin."""
+    return SourceResult(source=source, status="ok", fetches=1, raw_count=1)
 
 
 class ReplayKiwi:
     name = "kiwi"
 
     async def search(self, request: SourceRequest) -> SourceResult:
-        text = (FIXTURES / "kiwi" / f"{_kiwi_fixture(request)}.sse").read_text(encoding="utf-8")
+        fixture = _kiwi_fixture(request)
+        if fixture is None:
+            return _no_fixture(self.name)
+        text = (FIXTURES / "kiwi" / f"{fixture}.sse").read_text(encoding="utf-8")
         found = normalize(
             parse_sse(text), origin=request.origin, adults=request.adults, fetched_at=utc_now()
         )
@@ -57,12 +65,19 @@ def _load_google(name: str) -> RawResults:
     ]
 
 
+# The synthetic Google fixtures depart from these airports (round trip, one way).
+GOOGLE_FIXTURE_ORIGINS = {"synthetic_rt.json": "SCL", "synthetic_oneway.json": "EZE"}
+SKIPLAGGED_FIXTURE_ORIGIN = "SCL"  # madrid_scl_rt.sse
+
+
 class ReplayGoogle:
     name = "google"
 
     async def search(self, request: SourceRequest) -> SourceResult:
         await asyncio.sleep(GOOGLE_DELAY_S)
         fixture = "synthetic_oneway.json" if request.nights_min is None else "synthetic_rt.json"
+        if request.origin != GOOGLE_FIXTURE_ORIGINS[fixture]:
+            return _no_fixture(self.name)
         found = normalize_results(
             _load_google(fixture),
             origin=request.origin,
@@ -78,6 +93,8 @@ class ReplaySkiplagged:
 
     async def search(self, request: SourceRequest) -> SourceResult:
         await asyncio.sleep(SKIPLAGGED_DELAY_S)
+        if request.origin != SKIPLAGGED_FIXTURE_ORIGIN:
+            return _no_fixture(self.name)
         text = (FIXTURES / "skiplagged" / "madrid_scl_rt.sse").read_text(encoding="utf-8")
         found = normalize_search(
             parse_sse(text), origin=request.origin, adults=request.adults, fetched_at=utc_now()

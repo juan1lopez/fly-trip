@@ -2,6 +2,7 @@ import asyncio
 import socket
 import sys
 import webbrowser
+from collections.abc import Mapping
 from datetime import date
 from typing import Annotated
 
@@ -13,7 +14,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from flytrip.core.calendar import CalendarDay
-from flytrip.core.models import Itinerary
+from flytrip.core.models import Itinerary, TransferCost
 from flytrip.core.months import MONTH_NAMES, months_window, validate_months
 from flytrip.core.query import (
     SearchQuery,
@@ -114,7 +115,9 @@ def _itinerary_row(index: int, it: Itinerary) -> tuple[str, ...]:
     )
 
 
-def _calendar_lines(days: tuple[CalendarDay, ...]) -> list[str]:
+def _calendar_lines(
+    days: tuple[CalendarDay, ...], transfers: Mapping[str, TransferCost | None]
+) -> list[str]:
     """One line per month with its cheapest day (the prices are only a guide)."""
     best: dict[tuple[int, int], CalendarDay] = {}
     for entry in days:
@@ -123,7 +126,8 @@ def _calendar_lines(days: tuple[CalendarDay, ...]) -> list[str]:
             best[key] = entry
     return [
         f"Día más barato de {MONTH_NAMES[month - 1]}: {format_short_date(entry.day)} "
-        f"desde {entry.origin} · {format_number(entry.price_usd)} USD (orientativo)"
+        f"desde {entry.origin} · {format_number(entry.price_usd)} USD "
+        + ("(incluye traslado), orientativo" if transfers.get(entry.origin) else "(orientativo)")
         for (_, month), entry in sorted(best.items())
     ]
 
@@ -158,7 +162,7 @@ def _render(snapshot: SearchSnapshot, settings: Settings) -> None:
         console.print(escape(f"No se pudo consultar {origin_label(origin)}: {reason}"))
     for status in snapshot.statuses.values():
         console.print(escape(status_label(status)))
-    for line in _calendar_lines(snapshot.calendar):
+    for line in _calendar_lines(snapshot.calendar, settings.transfers):
         console.print(escape(line))
     if snapshot.calendar_note:
         console.print(escape(snapshot.calendar_note))

@@ -288,6 +288,9 @@ def normalize_search_counted(
         if not isinstance(price_raw, dict) or price_raw.get("currency") != "USD":
             raise SkiplaggedProtocolError("precio inesperado")
         price = Decimal(str(price_raw["amount"]))
+        if price <= 0:  # a zero or negative fare is a data glitch, never a deal
+            dropped += 1
+            continue
         if not SKIPLAGGED_PRICE_IS_TOTAL:
             price *= adults
         leg_codes = [leg.split("-") for leg in link.split("#trip=", 1)[1].split(",")]

@@ -192,3 +192,28 @@ def test_month_search_prints_one_cheapest_day_line_per_month(monkeypatch):
     assert r.exit_code == 0, r.output
     assert "Día más barato de marzo: 09/03 desde EZE · 954 USD (orientativo)" in r.output
     assert "Día más barato de abril: 02/04 desde SCL · 1.001 USD (orientativo)" in r.output
+
+
+def test_calendar_line_says_when_the_price_includes_the_transfer(monkeypatch):
+    from decimal import Decimal
+
+    from flytrip.core.calendar import CalendarDay
+    from flytrip.engine.settings import Settings
+    from tests.factories import T
+
+    class WithTransfer(StaticEngine):
+        settings = Settings(transfers={"EZE": T("200", "2")})
+
+    snapshot = SNAPSHOT_A_B_C.model_copy(
+        update={
+            "calendar": (
+                CalendarDay(day=date(2027, 3, 9), price_usd=Decimal("1154"), origin="EZE"),
+                CalendarDay(day=date(2027, 4, 2), price_usd=Decimal("1001"), origin="MDZ"),
+            )
+        }
+    )
+    monkeypatch.setattr(cli, "engine_factory", lambda home: WithTransfer(snapshot))
+    month_args = ["--mes", "2027-03", "--hasta-mes", "2027-04", "--noches", "14-21"]
+    r = CliRunner().invoke(cli.app, ["search", "MAD", *month_args])
+    assert "desde EZE · 1.154 USD (incluye traslado), orientativo" in r.output
+    assert "desde MDZ · 1.001 USD (orientativo)" in r.output
