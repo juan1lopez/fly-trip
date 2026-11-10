@@ -23,6 +23,7 @@ from fli.search import (
     SearchHTTPError,
     SearchTimeoutError,
 )
+from fli.search import _tfs as fli_pages
 from fli.search.client import Client
 from fli.search.flights import SearchParseError
 
@@ -30,11 +31,16 @@ from flytrip.core.legs import build_leg, itinerary_id, normalize_flight_number
 from flytrip.core.models import Itinerary, Offer, Segment
 from flytrip.sources.base import BLOCK_PAUSE_MINUTES, SourceBlocked, SourceRequest, SourceResult
 
+# fli 0.10.0 re-fetches a page up to PAGE_FETCH_ATTEMPTS times when it carries no ds:1 payload
+# (consent or blocked pages). One fetch must stay one request, so the retry is switched off.
+fli_pages.PAGE_FETCH_ATTEMPTS = 1
+
 GOOGLE_FETCH_BUDGET = 12
 GOOGLE_MAX_CONCURRENCY = 3
 GOOGLE_RETURN_PAIR_COST = 2
 GOOGLE_RATE_LIMITED = "Google Flights limitó las consultas (429)"
-# ASSUMED, NOT VERIFIED live: see docs/sources/google-flights.md (question d).
+# Verified live on fli 0.10.0 (2026-11-09): 2 adults cost exactly 2x one adult, so the displayed
+# price is already the total. See docs/sources/google-flights.md (question d).
 GOOGLE_PRICE_IS_TOTAL = True
 
 RawResults = list[FlightResult | tuple[FlightResult, ...]]
@@ -65,9 +71,10 @@ class FliClient(Protocol):
 class _SingleAttemptClient(Client):  # type: ignore[misc]
     """fli's HTTP client without its hidden retries: one fetch is exactly one request.
 
-    fli 0.9.0 decorates `Client.post` with tenacity (3 attempts, exponential wait), so a single
-    blocked or failing fetch becomes up to three requests. `__wrapped__` is the undecorated method,
-    which keeps the rate limiter, the timeout and the error mapping.
+    fli 0.10.0 decorates `Client.get`/`post` with tenacity (3 attempts, exponential wait), so a
+    single blocked or failing fetch becomes up to three requests. Searches use `get` (the search
+    page), and `fetch_payload` adds its own empty-page retry, disabled above. `__wrapped__` is the
+    undecorated method, which keeps the rate limiter, the timeout and the error mapping.
     """
 
     def post(self, url: str, **kwargs: Any) -> Any:
@@ -189,7 +196,7 @@ def normalize_results(
         for part in parts:
             if part.currency not in (None, "USD"):
                 raise GoogleCurrencyError(part.currency)
-        # Round trips: the last tuple element carries the total price.
+        # Round trips: the last tuple element carries the pair's total price (verified live).
         total = parts[-1].price
         if total is None:
             continue

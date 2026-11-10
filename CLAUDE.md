@@ -43,7 +43,7 @@ Se verifican con import-linter dentro de `fly check`:
 - Nunca reformatear `docs/` con ruff (está excluido; reescribe los bloques Python de los Markdown).
 - En Windows, ser explícito con UTF-8: leer `sys.stdin.buffer` y decodificar como UTF-8; usar `PYTHONUTF8=1` para subprocesos y salida de consola.
 - `pytest` común excluye `live`; correr `-m live` solo a propósito, porque usa la red.
-- Google Flights con `fli` 0.9.0 devuelve vacío desde esta máquina y `fly doctor` lo muestra como roto. No insistir.
+- Google Flights usa `fli` 0.10.0 desde GitHub (commit `881aee5`); la 0.9.0 de PyPI devolvía vacío desde esta máquina. Ver `docs/sources/google-flights.md`.
 
 ## Cómo añadir una fuente
 
