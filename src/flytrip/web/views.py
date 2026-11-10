@@ -188,7 +188,7 @@ def calendar_months(snapshot: SearchSnapshot) -> list[MonthView]:
     return months
 
 
-def month_options(today: date, count: int = 6) -> list[tuple[str, str]]:
+def month_options(today: date, count: int = 12) -> list[tuple[str, str]]:
     """(`AAAA-MM`, short label) for the month of tomorrow and the next `count - 1`."""
     options: list[tuple[str, str]] = []
     tomorrow = today + timedelta(days=1)
