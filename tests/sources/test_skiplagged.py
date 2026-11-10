@@ -322,3 +322,53 @@ async def test_calendar_429_pauses_and_blocks_search_too():
         with pytest.raises(SourceBlocked):
             await source.search(EXACT)
     assert route.call_count == 1
+
+
+def _synthetic_rpc():
+    return parse_response(fixture("skiplagged", "synthetic_rt.sse"))
+
+
+def test_card_ending_elsewhere_is_dropped_without_any_flag():
+    rpc = _synthetic_rpc()
+    text = rpc["result"]["content"][0]["text"]
+    rpc["result"]["content"][0]["text"] = text.replace(
+        "SCL → MAD (2027-03-19 00:50:00-03:00", "SCL → BCN (2027-03-19 00:50:00-03:00"
+    )
+    kwargs = {"origin": "SCL", "adults": 2, "fetched_at": FETCHED}
+    kept = normalize_search(rpc, destination="MAD", **kwargs)
+    assert [i.offers[0].price_usd for i in kept] == [Decimal("2056"), Decimal("1768")]
+    # Without the optional destination, the card/row cross-check still applies.
+    with pytest.raises(SkiplaggedProtocolError):
+        normalize_search(rpc, **kwargs)
+
+
+def test_row_must_match_the_structured_card():
+    rpc = _synthetic_rpc()
+    card = rpc["result"]["structuredContent"]["flights"][0]
+    card["arrival"]["dateTime"] = "2027-03-19T18:30:00+01:00"
+    with pytest.raises(SkiplaggedProtocolError, match="no coincide"):
+        normalize_search(rpc, origin="SCL", adults=2, fetched_at=FETCHED)
+    rpc = _synthetic_rpc()
+    card = rpc["result"]["structuredContent"]["flights"][0]
+    card["returnFlight"]["departure"]["dateTime"] = "2027-04-04T13:15:00+02:00"
+    with pytest.raises(SkiplaggedProtocolError, match="no coincide"):
+        normalize_search(rpc, origin="SCL", adults=2, fetched_at=FETCHED)
+
+
+def test_trip_shape_must_match_the_request():
+    rpc = _synthetic_rpc()
+    kwargs = {"origin": "SCL", "adults": 2, "fetched_at": FETCHED}
+    assert normalize_search(rpc, round_trip=False, **kwargs) == []
+    assert len(normalize_search(rpc, round_trip=True, **kwargs)) == 3
+
+
+@respx.mock
+async def test_unexpected_parse_errors_become_formato_cambiado():
+    rpc = _synthetic_rpc()
+    rpc["result"]["structuredContent"]["flights"][0]["price"]["amount"] = "abc"
+    sse = "data: " + json.dumps(rpc) + "\n\n"
+    respx.post(SKIPLAGGED_URL).mock(return_value=httpx.Response(200, text=sse))
+    async with httpx.AsyncClient() as client:
+        result = await _source(client).search(EXACT)
+    assert result.status == "error"
+    assert result.detail == "Skiplagged: formato cambiado"

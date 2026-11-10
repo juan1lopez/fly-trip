@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import time
 from collections.abc import Callable
@@ -13,6 +14,8 @@ from flytrip.core.legs import build_leg, itinerary_id, normalize_flight_number
 from flytrip.core.models import Itinerary, Leg, Offer, Segment
 from flytrip.sources.base import BLOCK_PAUSE_MINUTES, SourceBlocked, SourceRequest, SourceResult
 from flytrip.sources.kiwi import KiwiProtocolError, parse_sse, utc_now
+
+logger = logging.getLogger(__name__)
 
 SKIPLAGGED_URL = "https://mcp.skiplagged.com/mcp"
 SKIPLAGGED_MAX_CONCURRENCY = 3
@@ -198,8 +201,32 @@ def _separate_tickets(raw: dict[str, Any]) -> bool | None:
     return None
 
 
+def _card_time(card: Any, key: str) -> datetime:
+    try:
+        return _aware(str(card[key]["dateTime"])).replace(tzinfo=None)
+    except (KeyError, TypeError) as exc:
+        raise SkiplaggedProtocolError("tarjeta sin horarios") from exc
+
+
+def _check_leg(leg: Leg, card: Any) -> None:
+    """The row parsed from the text must agree with the structured card."""
+    if (
+        leg.segments[0].departure_local != _card_time(card, "departure")
+        or leg.segments[-1].arrival_local != _card_time(card, "arrival")
+        or leg.segments[0].from_airport != str(card["departure"].get("airport"))
+        or leg.segments[-1].to_airport != str(card["arrival"].get("airport"))
+    ):
+        raise SkiplaggedProtocolError("el detalle de tramos no coincide con la tarjeta")
+
+
 def normalize_search(
-    rpc: dict[str, Any], *, origin: str, adults: int, fetched_at: datetime
+    rpc: dict[str, Any],
+    *,
+    origin: str,
+    adults: int,
+    fetched_at: datetime,
+    destination: str | None = None,
+    round_trip: bool | None = None,
 ) -> list[Itinerary]:
     data = _structured(rpc)
     pricing = data.get("pricing")
@@ -208,6 +235,7 @@ def normalize_search(
         raise SkiplaggedProtocolError(f"moneda inesperada: {currency}")
     rows = _rows(_text(rpc))
     itineraries: list[Itinerary] = []
+    dropped = 0
     for raw in data.get("flights") or []:
         link = str(raw.get("deepLink") or "")
         if _is_hidden_city(raw, rows.get(link)):
@@ -224,9 +252,22 @@ def normalize_search(
         if not SKIPLAGGED_PRICE_IS_TOTAL:
             price *= adults
         leg_codes = [leg.split("-") for leg in link.split("#trip=", 1)[1].split(",")]
+        if round_trip is not None and (len(leg_codes) > 1) != round_trip:
+            dropped += 1
+            continue
         out_part, _, back_part = row.partition("Return:<br/>")
         outbound = _parse_leg(out_part, leg_codes[0])
+        # Structural hidden-city defense: the trip must end where we asked to go.
+        if destination is not None and outbound.segments[-1].to_airport != destination:
+            dropped += 1
+            continue
+        _check_leg(outbound, raw)
         inbound = _parse_leg(back_part, leg_codes[1]) if len(leg_codes) > 1 else None
+        if inbound is not None:
+            back_card = raw.get("returnFlight")
+            if not isinstance(back_card, dict):
+                raise SkiplaggedProtocolError("tarjeta sin vuelta")
+            _check_leg(inbound, back_card)
         itineraries.append(
             Itinerary(
                 id=itinerary_id(outbound, inbound),
@@ -247,6 +288,8 @@ def normalize_search(
                 separate_tickets=_separate_tickets(raw),
             )
         )
+    if dropped:
+        logger.debug("Skiplagged: %d tarjetas descartadas", dropped)
     return itineraries
 
 
@@ -322,9 +365,24 @@ class SkiplaggedSource:
         arguments = build_search_arguments(request)
         try:
             rpc = await self._call("sk_flights_search", arguments)
-            itineraries = normalize_search(
-                rpc, origin=request.origin, adults=request.adults, fetched_at=self._clock()
-            )
+            try:
+                itineraries = normalize_search(
+                    rpc,
+                    origin=request.origin,
+                    adults=request.adults,
+                    fetched_at=self._clock(),
+                    destination=request.destination,
+                    round_trip=request.nights_min is not None,
+                )
+            except (
+                ValueError,
+                KeyError,
+                IndexError,
+                ArithmeticError,
+                TypeError,
+                AttributeError,
+            ) as exc:  # pydantic's ValidationError is a ValueError
+                raise SkiplaggedProtocolError("formato cambiado") from exc
         except (httpx.TransportError, SkiplaggedToolError, SkiplaggedProtocolError) as exc:
             status, detail = self._failure(exc)
             return SourceResult(
