@@ -8,6 +8,12 @@ from tests.factories import make_query as q
 TODAY = date(2026, 11, 9)
 
 
+def test_calendar_flag_is_part_of_the_cache_key():
+    base = q()
+    assert base.calendar is False
+    assert base.cache_key() != base.model_copy(update={"calendar": True}).cache_key()
+
+
 def test_valid_query_has_no_errors():
     assert validate_query(q(), TODAY) == []
 

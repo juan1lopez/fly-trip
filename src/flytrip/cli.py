@@ -13,6 +13,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from flytrip.core.models import Itinerary
+from flytrip.core.months import months_window, validate_months
 from flytrip.core.query import (
     SearchQuery,
     today_for_validation,
@@ -160,8 +161,14 @@ async def _final_snapshot(
 @app.command()
 def search(
     destination: Annotated[str, typer.Argument(help="Destino, por ejemplo MAD.")],
-    desde: Annotated[str, typer.Option("--desde", help="Primera salida, AAAA-MM-DD.")],
-    hasta: Annotated[str, typer.Option("--hasta", help="Última salida, AAAA-MM-DD.")],
+    desde: Annotated[
+        str | None, typer.Option("--desde", help="Primera salida, AAAA-MM-DD.")
+    ] = None,
+    hasta: Annotated[str | None, typer.Option("--hasta", help="Última salida, AAAA-MM-DD.")] = None,
+    mes: Annotated[str | None, typer.Option("--mes", help="Mes de salida, AAAA-MM.")] = None,
+    hasta_mes: Annotated[
+        str | None, typer.Option("--hasta-mes", help="Último mes de salida, AAAA-MM.")
+    ] = None,
     noches: Annotated[str | None, typer.Option("--noches", help="Noches MIN-MAX.")] = None,
     solo_ida: Annotated[bool, typer.Option("--solo-ida", help="Sin vuelta.")] = False,
     origenes: Annotated[
@@ -187,19 +194,39 @@ def search(
         raise typer.Exit(code=2)
     nights = None if noches is None else _parse_nights(noches)
     settings = engine.settings
+    today = today_for_validation(utc_now())
+    if mes is not None:
+        if desde is not None or hasta is not None:
+            typer.echo("Usa --mes o --desde/--hasta, no los dos.", err=True)
+            raise typer.Exit(code=2)
+        month_errors = validate_months(mes, hasta_mes, today)
+        if month_errors:
+            for message in month_errors:
+                typer.echo(message, err=True)
+            raise typer.Exit(code=2)
+        depart_from, depart_to = months_window(mes, hasta_mes, today)
+    else:
+        if hasta_mes is not None:
+            typer.echo("--hasta-mes se usa junto con --mes.", err=True)
+            raise typer.Exit(code=2)
+        if desde is None or hasta is None:
+            typer.echo("Indica --mes o --desde y --hasta.", err=True)
+            raise typer.Exit(code=2)
+        depart_from, depart_to = _parse_date(desde), _parse_date(hasta)
     query = SearchQuery(
         destination=destination.strip().upper(),
         origins=tuple(o.strip().upper() for o in origenes.split(","))
         if origenes
         else settings.default_origins,
-        depart_from=_parse_date(desde),
-        depart_to=_parse_date(hasta),
+        depart_from=depart_from,
+        depart_to=depart_to,
         nights_min=nights[0] if nights else None,
         nights_max=nights[1] if nights else None,
         adults=adultos if adultos is not None else settings.adults,
         allow_separate_tickets=settings.allow_separate_tickets and not sin_separados,
+        calendar=mes is not None,
     )
-    errors = validate_query(query, today_for_validation(utc_now()), engine.max_window_days)
+    errors = validate_query(query, today, engine.max_window_days)
     if errors:
         for message in errors:
             typer.echo(message, err=True)
