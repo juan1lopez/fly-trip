@@ -1,5 +1,5 @@
 <ul class="status-bar">
 {% for status in statuses %}
-  <li class="status-{{ status.state }}">{{ status_label(status) }}</li>
+  <li class="chip status-{{ status.state }}">{{ status_label(status) }}</li>
 {% endfor %}
 </ul>

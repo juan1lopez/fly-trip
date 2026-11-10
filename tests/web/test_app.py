@@ -31,7 +31,7 @@ def test_results_show_breakdown_and_separate_warning(client):
     html = _results(client)
     assert "758 + 80 traslado" in html and "Pasajes separados" in html
     assert "Comprar en Kiwi" in html
-    assert html.count('class="itinerary"') == 3 and 'class="origin-card"' in html
+    assert html.count('class="itinerary"') == 3 and 'class="origin-card' in html
     assert "desconocido" in html
 
 

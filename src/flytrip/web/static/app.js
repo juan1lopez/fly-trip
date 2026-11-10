@@ -23,6 +23,67 @@
     run(new URLSearchParams(new FormData(form)).toString(), false);
   });
 
+  // -- search mode and month pills ------------------------------------------------------
+  var modeInput = form.elements["modo"];
+  var monthFields = document.getElementById("month-fields");
+  var dateFields = document.getElementById("date-fields");
+  var toggle = document.getElementById("toggle-mode");
+  var pills = Array.prototype.slice.call(form.querySelectorAll("#month-pills [data-month]"));
+
+  function setMode(mode) {
+    modeInput.value = mode;
+    monthFields.hidden = mode !== "mes";
+    dateFields.hidden = mode === "mes";
+    toggle.textContent = mode === "mes" ? "Fechas exactas" : "Buscar por mes";
+  }
+
+  toggle.addEventListener("click", function () {
+    setMode(modeInput.value === "mes" ? "fechas" : "mes");
+  });
+
+  // The selection is always a contiguous range (at most 4 months, which the server enforces).
+  function selectRange(first, last) {
+    pills.forEach(function (pill) {
+      var on = pill.dataset.month >= first && pill.dataset.month <= last;
+      pill.classList.toggle("on", on);
+      pill.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    form.elements["mes"].value = first;
+    form.elements["hasta_mes"].value = last;
+  }
+
+  pills.forEach(function (pill, index) {
+    pill.addEventListener("click", function () {
+      var month = pill.dataset.month;
+      var first = form.elements["mes"].value;
+      var last = form.elements["hasta_mes"].value;
+      if (month < first) first = month;
+      else if (month > last) last = month;
+      else if (month === first && first !== last) first = pills[index + 1].dataset.month;
+      else if (month === last && first !== last) last = pills[index - 1].dataset.month;
+      else if (first !== last) {
+        first = month;
+        last = month;
+      }
+      selectRange(first, last);
+    });
+  });
+
+  // A calendar day switches to exact dates for that day and that origin, same nights, and searches.
+  resultsEl.addEventListener("click", function (event) {
+    var button = event.target.closest && event.target.closest("button[data-day]");
+    if (!button) return;
+    var day = button.dataset.day;
+    var origin = button.dataset.origin;
+    setMode("fechas");
+    form.elements["desde"].value = day;
+    form.elements["hasta"].value = day;
+    Array.prototype.forEach.call(form.querySelectorAll("input[name=origenes]"), function (box) {
+      box.checked = box.value === origin;
+    });
+    run(new URLSearchParams(new FormData(form)).toString(), false);
+  });
+
   // "Actualizar" re-runs the same search, ignoring the cache; later edits to the form do not count.
   resultsEl.addEventListener("click", function (event) {
     if (event.target.closest && event.target.closest("#refresh") && lastParams) {
