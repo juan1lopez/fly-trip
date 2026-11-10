@@ -2,6 +2,20 @@ import calendar
 from datetime import date, timedelta
 
 MAX_MONTHS = 4
+MONTH_NAMES = (
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+)
 
 
 def parse_month(value: str) -> tuple[int, int]:

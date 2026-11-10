@@ -62,3 +62,9 @@ def test_validate_current_month_on_its_last_day():
 
 def test_validate_past_month():
     assert validate_months("2026-10", None, TODAY) == ["Ese mes ya pasó: 2026-10."]
+
+
+def test_month_names_are_spanish():
+    from flytrip.core.months import MONTH_NAMES
+
+    assert MONTH_NAMES[2] == "marzo" and len(MONTH_NAMES) == 12

@@ -13,7 +13,7 @@ ORIGIN_LABELS = {
     "EZE": "Vía Ezeiza",
 }
 
-SOURCE_NAMES = {"kiwi": "Kiwi", "google": "Google Flights"}
+SOURCE_NAMES = {"kiwi": "Kiwi", "google": "Google Flights", "skiplagged": "Skiplagged"}
 UNKNOWN_SEPARATE = "No se pudo verificar si son pasajes separados"
 
 
