@@ -1,4 +1,4 @@
-"""Live health check of the two flight sources, used by `fly doctor`."""
+"""Live health check of the three flight sources, used by `fly doctor`."""
 
 import asyncio
 from collections.abc import Callable
@@ -10,6 +10,7 @@ from flytrip.sources.base import PauseRegistry, Source, SourceRequest, SourceRes
 
 KIWI_TIMEOUT_S = 20
 GOOGLE_TIMEOUT_S = 40
+SKIPLAGGED_TIMEOUT_S = 30
 PROBE_NIGHTS = 14
 
 
@@ -50,6 +51,7 @@ def check_result_shape(result: SourceResult) -> SourceHealth:
 async def run_doctor(
     kiwi: Source,
     google: Source,
+    skiplagged: Source | None,
     *,
     today: date,
     pauses: PauseRegistry,
@@ -69,7 +71,7 @@ async def run_doctor(
             allow_separate_tickets=False,
         )
 
-    results = await asyncio.gather(
+    runs = [
         run_safely(
             kiwi,
             probe(today + timedelta(days=44)),
@@ -78,5 +80,16 @@ async def run_doctor(
             clock=clock,
         ),
         run_safely(google, probe(first), timeout_s=GOOGLE_TIMEOUT_S, pauses=pauses, clock=clock),
-    )
+    ]
+    if skiplagged is not None:
+        runs.append(
+            run_safely(
+                skiplagged,
+                probe(first),
+                timeout_s=SKIPLAGGED_TIMEOUT_S,
+                pauses=pauses,
+                clock=clock,
+            )
+        )
+    results = await asyncio.gather(*runs)
     return [check_result_shape(r) for r in results]

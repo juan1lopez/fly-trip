@@ -1,31 +1,71 @@
 {% extends "base.html" %}
 {% block title %}Buscar pasajes · fly-trip{% endblock %}
 {% block content %}
-<h1>Buscar pasajes baratos</h1>
-<form id="search-form" action="/buscar/stream" method="get">
-  <label>Destino
-    <input name="destino" value="" placeholder="Código IATA o ciudad" required>
-  </label>
-  <label>Salir desde <input type="date" name="desde" required></label>
-  <label>Salir hasta <input type="date" name="hasta" required></label>
-  <label>Noches mínimas <input type="number" name="noches_min" min="1" max="60" value="14"></label>
-  <label>Noches máximas <input type="number" name="noches_max" min="1" max="60" value="21"></label>
-  <label class="inline"><input type="checkbox" name="solo_ida" value="1"> Solo ida</label>
-  <fieldset>
-    <legend>Orígenes</legend>
-    {% for code in all_origins %}
-    <label class="inline">
-      <input type="checkbox" name="origenes" value="{{ code }}"{% if code in settings.default_origins %} checked{% endif %}>
-      {{ origin_label(code) }}
-    </label>
-    {% endfor %}
-  </fieldset>
-  <label>Adultos <input type="number" name="adultos" value="{{ settings.adults }}" min="1" max="9"></label>
-  <label class="inline"><input type="checkbox" name="separados" value="1"{% if settings.allow_separate_tickets %} checked{% endif %}> Permitir pasajes separados</label>
-  <button type="submit">Buscar</button>
-</form>
-<div id="errors" role="alert"></div>
-<section id="status" aria-live="polite"></section>
-<section id="results"></section>
+<div class="layout">
+  <div class="side">
+    <form id="search-form" class="card stack" action="/buscar/stream" method="get">
+      <h1 class="panel-title">Buscar pasajes</h1>
+      <input type="hidden" name="modo" id="modo" value="mes">
+      <label class="field">
+        <small>Destino</small>
+        <input name="destino" value="" placeholder="Código IATA o ciudad" required>
+      </label>
+
+      <div id="month-fields">
+        <span class="small-label" id="months-label">Meses</span>
+        <div class="pills" role="group" aria-labelledby="months-label" id="month-pills">
+          {% for value, label in month_options %}
+          <button type="button" class="pill{% if value in default_months %} on{% endif %}" data-month="{{ value }}" aria-pressed="{{ 'true' if value in default_months else 'false' }}">{{ label }}</button>
+          {% endfor %}
+        </div>
+        <input type="hidden" name="mes" value="{{ default_months[0] }}">
+        <input type="hidden" name="hasta_mes" value="{{ default_months[-1] }}">
+      </div>
+
+      <div id="date-fields" hidden>
+        <div class="two">
+          <label class="field"><small>Salir desde</small><input type="date" name="desde"></label>
+          <label class="field"><small>Salir hasta</small><input type="date" name="hasta"></label>
+        </div>
+      </div>
+      <button type="button" class="link" id="toggle-mode" aria-controls="date-fields" aria-expanded="false">Fechas exactas</button>
+
+      <div class="two">
+        <label class="field"><small>Noches mín.</small><input type="number" name="noches_min" min="1" max="60" value="14"></label>
+        <label class="field"><small>Noches máx.</small><input type="number" name="noches_max" min="1" max="60" value="21"></label>
+      </div>
+      <label class="pill check"><input type="checkbox" name="solo_ida" value="1"> Solo ida</label>
+
+      <fieldset class="origins">
+        <legend class="small-label">Desde</legend>
+        <div class="pills">
+          {% for code in all_origins %}
+          <label class="pill check" title="{{ origin_label(code) }}">
+            <input type="checkbox" name="origenes" value="{{ code }}"{% if code in settings.default_origins %} checked{% endif %}>
+            {{ code }}
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <div class="two">
+        <label class="field"><small>Adultos</small><input type="number" name="adultos" value="{{ settings.adults }}" min="1" max="9"></label>
+        <label class="pill check sep"><input type="checkbox" name="separados" value="1"{% if settings.allow_separate_tickets %} checked{% endif %}> Permitir pasajes separados</label>
+      </div>
+
+      <button type="submit" class="cta">Buscar vuelos <span class="arrow" aria-hidden="true">→</span></button>
+    </form>
+    <section id="status" class="card" aria-live="polite" aria-label="Estado de las fuentes"></section>
+  </div>
+  <div class="main-col">
+    <div id="errors" role="alert"></div>
+    <section id="results" aria-live="polite" aria-busy="false">
+      <div class="card empty-state">
+        <p class="display">Elige meses y busca.</p>
+        <p class="muted">Te mostramos el día de salida más barato de cada mes y los mejores pasajes desde tus orígenes.</p>
+      </div>
+    </section>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}<script src="/static/app.js"></script>{% endblock %}

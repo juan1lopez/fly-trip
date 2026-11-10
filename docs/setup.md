@@ -22,7 +22,8 @@
 
 ## Comandos útiles
 
-- `uv run fly doctor`: revisa que Kiwi y Google Flights respondan (hace pocas consultas reales, no lo repitas seguido).
+- `uv run fly doctor`: revisa que Kiwi, Google Flights y Skiplagged respondan (hace pocas consultas reales, no lo repitas seguido).
+- `uv run fly search MAD --mes 2027-03 --hasta-mes 2027-05 --noches 14-21`: busca por mes (usa el calendario de Skiplagged). Los pasajes hidden city nunca se incluyen.
 - `uv run fly web --demo`: abre la web con datos de ejemplo, sin red, para probar la interfaz.
 - `uv run fly check --fast`: todos los chequeos menos los tests e2e del navegador (estos necesitan el paso 3).
 - `uv run pytest -m live -q`: tests que sí usan la red. El `pytest` común los excluye; corrélos solo a propósito.

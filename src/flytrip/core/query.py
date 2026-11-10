@@ -38,6 +38,7 @@ class SearchQuery(BaseModel):
     nights_max: int | None
     adults: int = 1
     allow_separate_tickets: bool = True
+    calendar: bool = False
 
     @property
     def trip_type(self) -> Literal["oneway", "return"]:
@@ -46,7 +47,11 @@ class SearchQuery(BaseModel):
         return "return"
 
     def cache_key(self) -> str:
-        canonical = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        data = self.model_dump(mode="json")
+        if not data["calendar"]:
+            # Omitted when False so keys of existing (date-mode) caches stay valid.
+            del data["calendar"]
+        canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode()).hexdigest()
 
 

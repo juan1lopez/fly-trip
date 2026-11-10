@@ -4,32 +4,36 @@
 <h1>Ajustes</h1>
 {% if errors %}{% include "_errors.html" %}{% endif %}
 {% if saved %}<p class="ok">Ajustes guardados.</p>{% endif %}
-<form action="/ajustes" method="post">
+<form action="/ajustes" method="post" class="card settings-form">
   <fieldset>
-    <legend>Orígenes por defecto</legend>
+    <legend class="small-label">Orígenes por defecto</legend>
+    <div class="pills">
     {% for code in all_origins %}
-    <label class="inline">
+    <label class="pill check">
       <input type="checkbox" name="origenes" value="{{ code }}"{% if code in settings.default_origins %} checked{% endif %}>
       {{ origin_label(code) }}
     </label>
     {% endfor %}
+    </div>
   </fieldset>
-  <label>Adultos <input type="number" name="adultos" value="{{ settings.adults }}" min="1" max="9"></label>
-  <label class="inline"><input type="checkbox" name="separados" value="1"{% if settings.allow_separate_tickets %} checked{% endif %}> Permitir pasajes separados</label>
-  <label>Valor de tu hora de viaje (USD por hora)
+  <label class="field"><small>Adultos</small><input name="adultos" type="number" value="{{ settings.adults }}" min="1" max="9"></label>
+  <label class="pill check"><input type="checkbox" name="separados" value="1"{% if settings.allow_separate_tickets %} checked{% endif %}> Permitir pasajes separados</label>
+  <label class="field"><small>Valor de tu hora de viaje (USD por hora)</small>
     <input name="usd_por_hora" value="{{ settings.usd_per_hour }}">
   </label>
   {% for code in ("SCL", "EZE") %}
   {% set transfer = settings.transfers.get(code) %}
   <fieldset>
-    <legend>Traslado desde Mendoza a {{ origin_label(code) }}</legend>
+    <legend class="small-label">Traslado desde Mendoza a {{ origin_label(code) }}</legend>
     <p class="note">Déjalo vacío si todavía no lo configuraste.</p>
-    <label>Costo ida y vuelta (USD)
+    <div class="two">
+    <label class="field"><small>Costo ida y vuelta (USD)</small>
       <input name="traslado_{{ code }}_costo" value="{{ transfer.cost_usd_roundtrip if transfer else '' }}">
     </label>
-    <label>Horas de viaje (un tramo)
+    <label class="field"><small>Horas de viaje (un tramo)</small>
       <input name="traslado_{{ code }}_horas" value="{{ transfer.hours_one_way if transfer else '' }}">
     </label>
+    </div>
   </fieldset>
   {% endfor %}
   <button type="submit">Guardar</button>

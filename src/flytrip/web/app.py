@@ -15,6 +15,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from flytrip.core.models import TransferCost
+from flytrip.core.months import default_months, months_window, validate_months
 from flytrip.core.query import SearchQuery, today_for_validation, validate_query
 from flytrip.engine.search import SearchEngine, SnapshotEvent, SourceStatus, StatusEvent
 from flytrip.engine.settings import Settings, SettingsStore
@@ -62,6 +63,9 @@ def _environment() -> Environment:
         age_label=views.age_label,
         source_names=views.SOURCE_NAMES,
         unknown_separate=views.UNKNOWN_SEPARATE,
+        format_number=views.format_number,
+        calendar_months=views.calendar_months,
+        best_origin=views.best_origin,
     )
     return env
 
@@ -85,9 +89,13 @@ class _Form:
         return self._data.get(name, [])
 
 
-def _parse_query(params: Any) -> tuple[SearchQuery | None, list[str]]:
-    """Build a SearchQuery from form parameters; the list holds parsing errors."""
+def _parse_query(params: Any, today: date) -> tuple[SearchQuery | None, list[str]]:
+    """Build a SearchQuery from form parameters; the list holds parsing errors.
+
+    `modo=mes` searches whole months (with the calendar); anything else uses exact dates.
+    """
     errors: list[str] = []
+    month_mode = params.get("modo") == "mes"
 
     def to_date(name: str, label: str) -> date:
         try:
@@ -106,8 +114,16 @@ def _parse_query(params: Any) -> tuple[SearchQuery | None, list[str]]:
             errors.append(f"{label}: tiene que ser un número entero.")
             return None
 
-    depart_from = to_date("desde", "desde")
-    depart_to = to_date("hasta", "hasta")
+    if month_mode:
+        first = params.get("mes", "").strip()
+        last = params.get("hasta_mes", "").strip() or None
+        errors.extend(validate_months(first, last, today))
+        if errors:
+            return None, errors
+        depart_from, depart_to = months_window(first, last, today)
+    else:
+        depart_from = to_date("desde", "desde")
+        depart_to = to_date("hasta", "hasta")
     one_way = bool(params.get("solo_ida"))
     nights_min = None if one_way else to_int("noches_min", "Noches mínimas")
     nights_max = None if one_way else to_int("noches_max", "Noches máximas")
@@ -123,6 +139,7 @@ def _parse_query(params: Any) -> tuple[SearchQuery | None, list[str]]:
         nights_max=nights_max,
         adults=adults,
         allow_separate_tickets=bool(params.get("separados")),
+        calendar=month_mode,
     )
     return query, []
 
@@ -201,15 +218,22 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
         settings = settings_store.load()
-        return render("index.html", settings=settings, all_origins=ALL_ORIGINS)
+        today = today_for_validation(datetime.now(UTC))
+        return render(
+            "index.html",
+            settings=settings,
+            all_origins=ALL_ORIGINS,
+            month_options=views.month_options(today),
+            default_months=default_months(today),
+        )
 
     def check(
         request: Request,
     ) -> tuple[SearchEngine, SearchQuery | None, list[str]]:
         engine = engine_factory()
-        query, errors = _parse_query(request.query_params)
+        today = today_for_validation(datetime.now(UTC))
+        query, errors = _parse_query(request.query_params, today)
         if query is not None:
-            today = today_for_validation(datetime.now(UTC))
             errors = validate_query(query, today, engine.max_window_days)
         return engine, query, errors
 

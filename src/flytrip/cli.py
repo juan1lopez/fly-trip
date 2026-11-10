@@ -2,6 +2,7 @@ import asyncio
 import socket
 import sys
 import webbrowser
+from collections.abc import Mapping
 from datetime import date
 from typing import Annotated
 
@@ -12,7 +13,9 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from flytrip.core.models import Itinerary
+from flytrip.core.calendar import CalendarDay
+from flytrip.core.models import Itinerary, TransferCost
+from flytrip.core.months import MONTH_NAMES, months_window, validate_months
 from flytrip.core.query import (
     SearchQuery,
     today_for_validation,
@@ -35,6 +38,7 @@ from flytrip.web.views import (
     SOURCE_NAMES,
     UNKNOWN_SEPARATE,
     baggage_label,
+    format_number,
     format_short_date,
     format_usd,
     missing_transfer_origins,
@@ -111,6 +115,23 @@ def _itinerary_row(index: int, it: Itinerary) -> tuple[str, ...]:
     )
 
 
+def _calendar_lines(
+    days: tuple[CalendarDay, ...], transfers: Mapping[str, TransferCost | None]
+) -> list[str]:
+    """One line per month with its cheapest day (the prices are only a guide)."""
+    best: dict[tuple[int, int], CalendarDay] = {}
+    for entry in days:
+        key = (entry.day.year, entry.day.month)
+        if key not in best or entry.price_usd < best[key].price_usd:
+            best[key] = entry
+    return [
+        f"Día más barato de {MONTH_NAMES[month - 1]}: {format_short_date(entry.day)} "
+        f"desde {entry.origin} · {format_number(entry.price_usd)} USD "
+        + ("(incluye traslado), orientativo" if transfers.get(entry.origin) else "(orientativo)")
+        for (_, month), entry in sorted(best.items())
+    ]
+
+
 def _render(snapshot: SearchSnapshot, settings: Settings) -> None:
     console = Console() if sys.stdout.isatty() else Console(width=200, soft_wrap=False)
     table = Table(title=f"Pasajes a {escape(snapshot.query.destination)}")
@@ -141,6 +162,10 @@ def _render(snapshot: SearchSnapshot, settings: Settings) -> None:
         console.print(escape(f"No se pudo consultar {origin_label(origin)}: {reason}"))
     for status in snapshot.statuses.values():
         console.print(escape(status_label(status)))
+    for line in _calendar_lines(snapshot.calendar, settings.transfers):
+        console.print(escape(line))
+    if snapshot.calendar_note:
+        console.print(escape(snapshot.calendar_note))
     if snapshot.from_cache:
         console.print(f"Resultado de la caché (hace {snapshot.cache_age_minutes} min).")
 
@@ -160,8 +185,14 @@ async def _final_snapshot(
 @app.command()
 def search(
     destination: Annotated[str, typer.Argument(help="Destino, por ejemplo MAD.")],
-    desde: Annotated[str, typer.Option("--desde", help="Primera salida, AAAA-MM-DD.")],
-    hasta: Annotated[str, typer.Option("--hasta", help="Última salida, AAAA-MM-DD.")],
+    desde: Annotated[
+        str | None, typer.Option("--desde", help="Primera salida, AAAA-MM-DD.")
+    ] = None,
+    hasta: Annotated[str | None, typer.Option("--hasta", help="Última salida, AAAA-MM-DD.")] = None,
+    mes: Annotated[str | None, typer.Option("--mes", help="Mes de salida, AAAA-MM.")] = None,
+    hasta_mes: Annotated[
+        str | None, typer.Option("--hasta-mes", help="Último mes de salida, AAAA-MM.")
+    ] = None,
     noches: Annotated[str | None, typer.Option("--noches", help="Noches MIN-MAX.")] = None,
     solo_ida: Annotated[bool, typer.Option("--solo-ida", help="Sin vuelta.")] = False,
     origenes: Annotated[
@@ -187,19 +218,39 @@ def search(
         raise typer.Exit(code=2)
     nights = None if noches is None else _parse_nights(noches)
     settings = engine.settings
+    today = today_for_validation(utc_now())
+    if mes is not None:
+        if desde is not None or hasta is not None:
+            typer.echo("Usa --mes o --desde/--hasta, no los dos.", err=True)
+            raise typer.Exit(code=2)
+        month_errors = validate_months(mes, hasta_mes, today)
+        if month_errors:
+            for message in month_errors:
+                typer.echo(message, err=True)
+            raise typer.Exit(code=2)
+        depart_from, depart_to = months_window(mes, hasta_mes, today)
+    else:
+        if hasta_mes is not None:
+            typer.echo("--hasta-mes se usa junto con --mes.", err=True)
+            raise typer.Exit(code=2)
+        if desde is None or hasta is None:
+            typer.echo("Indica --mes o --desde y --hasta.", err=True)
+            raise typer.Exit(code=2)
+        depart_from, depart_to = _parse_date(desde), _parse_date(hasta)
     query = SearchQuery(
         destination=destination.strip().upper(),
         origins=tuple(o.strip().upper() for o in origenes.split(","))
         if origenes
         else settings.default_origins,
-        depart_from=_parse_date(desde),
-        depart_to=_parse_date(hasta),
+        depart_from=depart_from,
+        depart_to=depart_to,
         nights_min=nights[0] if nights else None,
         nights_max=nights[1] if nights else None,
         adults=adultos if adultos is not None else settings.adults,
         allow_separate_tickets=settings.allow_separate_tickets and not sin_separados,
+        calendar=mes is not None,
     )
-    errors = validate_query(query, today_for_validation(utc_now()), engine.max_window_days)
+    errors = validate_query(query, today, engine.max_window_days)
     if errors:
         for message in errors:
             typer.echo(message, err=True)
@@ -216,13 +267,14 @@ def search(
 
 @app.command()
 def doctor() -> None:
-    """Comprueba que Kiwi y Google Flights responden con datos válidos."""
+    """Comprueba que Kiwi, Google Flights y Skiplagged responden con datos válidos."""
     home = home_dir()
     engine = engine_factory(home)
     health = asyncio.run(
         run_doctor(
             engine.kiwi,
             engine.google,
+            engine.skiplagged,
             today=today_in_mendoza(utc_now()),
             pauses=PauseRegistry(data_dir(home) / "pauses.json", utc_now),
             clock=utc_now,

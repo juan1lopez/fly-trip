@@ -1,4 +1,4 @@
-"""Wires the real search engine: Kiwi over HTTP, Google Flights through `fli`."""
+"""Wires the real search engine: Kiwi and Skiplagged over HTTP, Google Flights through `fli`."""
 
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from flytrip.engine.settings import SettingsStore
 from flytrip.sources.base import PauseRegistry
 from flytrip.sources.google_flights import GoogleFlightsSource, RealFliClient
 from flytrip.sources.kiwi import KiwiSource, utc_now
+from flytrip.sources.skiplagged import SkiplaggedSource
 
 
 def build_engine(home: Path) -> SearchEngine:
@@ -18,6 +19,7 @@ def build_engine(home: Path) -> SearchEngine:
     return SearchEngine(
         kiwi=KiwiSource(httpx.AsyncClient(timeout=20)),
         google=GoogleFlightsSource(RealFliClient()),
+        skiplagged=SkiplaggedSource(httpx.AsyncClient(timeout=20)),
         settings_provider=SettingsStore(data / "settings.json").load,
         cache=SearchCache(data / "cache.sqlite", utc_now),
         pauses=PauseRegistry(data / "pauses.json", utc_now),

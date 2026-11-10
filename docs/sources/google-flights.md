@@ -1,6 +1,6 @@
 # Google Flights (`fli`)
 
-Fuente que usa la librería `flights==0.9.0` (se importa como `fli`). Es sincrónica (curl_cffi), por eso la fuente la llama con `asyncio.to_thread`.
+Fuente que usa la librería `flights` 0.10.0 (se importa como `fli`), fijada al commit `881aee5` de GitHub (`punitarani/fli`) en `pyproject.toml` y `uv.lock`. La 0.9.0 de PyPI devolvía vacío desde esta máquina; la 0.10.0 responde. Como es una referencia directa, `pyproject.toml` activa `tool.hatch.metadata.allow-direct-references`. Es sincrónica (curl_cffi), por eso la fuente la llama con `asyncio.to_thread`.
 
 ## Qué confirma
 
@@ -17,32 +17,29 @@ Fuente que usa la librería `flights==0.9.0` (se importa como `fli`). Es sincró
 
 ## Una descarga es una solicitud HTTP
 
-`fli` 0.9.0 decora `Client.post` y `Client.get` con `tenacity` (`stop_after_attempt(3)`, `wait_exponential()`): una descarga que falla o recibe un 429 se repetía hasta 3 veces sin que lo viéramos, y el presupuesto de 12 descargas podía convertirse en 36 solicitudes. `RealFliClient` usa `_SingleAttemptClient`, que llama al método sin decorar (`__wrapped__`): conserva el limitador de ritmo, el timeout y el mapeo de errores, pero no reintenta. Así, 1 descarga = 1 solicitud y el peor caso queda en 12. Un test con una sesión falsa fija ese comportamiento. Si una versión futura de `fli` cambia el cliente, ese test avisa.
+`fli` 0.10.0 pide la página de búsqueda con `Client.get` (ya no `post`). Tanto `Client.get` como `Client.post` siguen decorados con `tenacity` (`stop_after_attempt(3)`, `wait_exponential()`), y además `fetch_payload` repite hasta `PAGE_FETCH_ATTEMPTS = 3` veces una página que llega sin el bloque `ds:1` (páginas de consentimiento o de bloqueo). Sin tocarlo, una descarga fallida podía ser hasta 3 o 9 solicitudes. `RealFliClient` usa `_SingleAttemptClient`, que llama a los métodos sin decorar (`__wrapped__`: conserva el limitador de ritmo, el timeout y el mapeo de errores, pero no reintenta), y `google_flights.py` fija `fli.search._tfs.PAGE_FETCH_ATTEMPTS = 1`. Así, 1 descarga = 1 solicitud y el peor caso queda en 12. Dos tests con una sesión falsa fijan ese comportamiento (error de red y página sin `ds:1`). Si una versión futura de `fli` cambia el cliente, esos tests avisan.
 
 ## Qué pasa después de un 429
 
 - La fuente guarda `_blocked_until = ahora + 60 min` al recibir un 429. Las consultas que ya estaban en la cola del semáforo (habían pasado el chequeo de pausa del motor) lo revisan antes de llamar a `fli` y levantan `SourceBlocked` sin hacer ninguna solicitud.
 - El motor además pausa Google 60 minutos (`PauseRegistry`) y las búsquedas siguientes ni lo intentan.
 
-## Verificación en vivo (Step 1)
+## Verificación en vivo (2026-11-09, `fli` 0.10.0)
 
-NO se pudo completar. El 2026-11-09, desde esta máquina, Google respondió 200 pero con un cuerpo de error
-(`[["wrb.fr",null,null,null,null,[13]], ...]`) a todas las consultas, incluso a una simple JFK-LHR de solo ida
-sin parámetros de moneda. `fli` interpreta eso como "sin resultados" y devuelve `None`. Pueden ser un bloqueo silencioso
-o un cambio del lado de Google. Se hicieron 5 consultas y se paró.
+Se hicieron 3 búsquedas (4 descargas) con `record_google`, en serie y con pausa. Las tres devolvieron resultados.
 
-| Pregunta | Estado |
-|---|---|
-| a) Precios en USD con `currency="USD"` | Sin verificar. Se defiende con `GoogleCurrencyError` si llega otra moneda. |
-| b) Elemento de la tupla con el total de ida y vuelta | Sin verificar. Se asume el último (`parts[-1]`), como indica el diseño. |
-| c) `departure_datetime` en hora local y sin zona | Sin verificar. El parser de `fli` genera `datetime` sin zona; se usan tal cual. |
-| d) Precio con 2 adultos es el total | Sin verificar. `GOOGLE_PRICE_IS_TOTAL = True` es una suposición. |
+| Pregunta | Respuesta | Evidencia |
+|---|---|---|
+| a) Precios en USD con `currency="USD"` | Sí. | Todos los resultados traen `currency == "USD"`; SCL-MAD ida y vuelta salió 715 USD (Skiplagged: 713). |
+| b) Elemento de la tupla con el total de ida y vuelta | El último (`parts[-1]`). | En `madrid_scl_rt` el primer elemento (ida) trae el precio "desde" de esa ida (715 en las tres primeras) y el segundo trae el total del par elegido (715, 715 y 928). |
+| c) `departure_datetime` en hora local y sin zona | Sí, ingenuo y local. | Sin `tzinfo`. SCL 00:50 (UTC-3) a MAD 17:30 (UTC+1) con `duration` 760 min: solo cuadra con horas locales. |
+| d) Precio con 2 adultos es el total | Sí. | Mismo par, 1 adulto 715 y 2 adultos 1430 (exactamente el doble). `GOOGLE_PRICE_IS_TOTAL = True` queda confirmado. |
 
-Pendiente: repetir la verificación cuando Google vuelva a responder y ajustar `GOOGLE_PRICE_IS_TOTAL` y el elemento de precio si hace falta.
+Un test offline (`test_recorded_fixtures_confirm_live_facts`) fija estos hechos sobre los fixtures grabados.
 
 ## Fixtures
 
-Como no se pudo grabar, TODOS los fixtures de `tests/fixtures/google/` son sintéticos (construidos con modelos `fli` y volcados con `model_dump(mode="json")`), incluidos los que llevan nombre de escenario grabado (`madrid_*`). Reemplazarlos por grabaciones reales cuando se pueda.
+`madrid_scl_rt`, `madrid_eze_oneway` y `madrid_scl_rt_2adults` son grabaciones reales (2026-11-09). Los demás (`synthetic_*`, `wrong_currency`) siguen siendo sintéticos, construidos con modelos `fli` y volcados con `model_dump(mode="json")`.
 
 ## Riesgos
 
@@ -56,11 +53,4 @@ Como no se pudo grabar, TODOS los fixtures de `tests/fixtures/google/` son sint�
 uv run python -c "from datetime import date; from pathlib import Path; from flytrip.devtools.record_google import record_google; record_google('madrid_scl_rt','SCL','MAD',date(2027,3,19),16,1,Path('tests/fixtures/google'))"
 ```
 
-Escenarios: `madrid_scl_rt` (SCL-MAD, 2027-03-19, 16 noches), `madrid_eze_oneway` (EZE-MAD, 2027-03-07), `madrid_scl_rt_2adults` (como el primero, con 2 adultos).
-
-## Verificación en vivo de cierre del hito 1 (2026-11-09)
-
-- `uv run fly doctor`: `Google Flights ✗ Rota: 0 itinerarios`. Sigue sin responder con `fli` 0.9.0 desde esta máquina.
-- `uv run pytest -m live -q`: el test de 2 adultos se saltó (Google no devuelve nada).
-- En la búsqueda real (escenario 1) la línea de estado fue `Google Flights: OK (0 en 0,6 s)`; desde entonces una respuesta vacía en todas las fechas se muestra como error y pausa la fuente (ver Riesgos). Los resultados de Kiwi se muestran igual.
-- No insistir con consultas: ya se hicieron varias y no cambia nada. Reintentar solo con `fly doctor`, y de a poco.
+Escenarios: `madrid_scl_rt` (SCL-MAD, 2027-03-19, 16 noches), `madrid_eze_oneway` (EZE-MAD, 2027-03-07, solo ida), `madrid_scl_rt_2adults` (como el primero, con 2 adultos).

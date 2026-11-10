@@ -75,3 +75,16 @@ def best_balance(itineraries: Sequence[Itinerary], usd_per_hour: Decimal) -> Iti
             i.id,
         ),
     )
+
+
+def keep_true_origin(itineraries: Iterable[Itinerary], origin: str) -> tuple[list[Itinerary], int]:
+    """Drop itineraries that do not depart from `origin` (or, round trip, do not return to it)."""
+    kept: list[Itinerary] = []
+    dropped = 0
+    for it in itineraries:
+        back_ok = it.inbound is None or it.inbound.segments[-1].to_airport == origin
+        if it.outbound.segments[0].from_airport == origin and back_ok:
+            kept.append(it)
+        else:
+            dropped += 1
+    return kept, dropped
