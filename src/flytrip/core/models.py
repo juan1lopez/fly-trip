@@ -40,7 +40,7 @@ class Baggage(_Frozen):
 
 
 class Offer(_Frozen):
-    source: Literal["kiwi", "google"]
+    source: Literal["kiwi", "google", "skiplagged"]
     price_usd: Decimal
     booking_url: str
     fetched_at: datetime

@@ -46,6 +46,8 @@ CONTRACT_CASES: list[ContractCase] = [
 
 from tests.contract.cases_google import GOOGLE_CASES  # noqa: E402
 from tests.contract.cases_kiwi import KIWI_CASES  # noqa: E402
+from tests.contract.cases_skiplagged import SKIPLAGGED_CASES  # noqa: E402
 
 CONTRACT_CASES += KIWI_CASES
 CONTRACT_CASES += GOOGLE_CASES
+CONTRACT_CASES += SKIPLAGGED_CASES
