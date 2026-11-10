@@ -24,9 +24,21 @@ d) **Hidden city.** Con `includeHiddenCity=true` en 100 resultados SCL→MAD no 
 
 e) **Precio con 2 adultos.** `price.amount` es el **total** del grupo: el vuelo Iberia SCL→MAD costó 715 con 1 adulto y 1430 con 2. Por eso `SKIPLAGGED_PRICE_IS_TOTAL = True` y no se multiplica. Los precios no traen separador de miles en `structuredContent` (el texto sí: `$1,430`).
 
-f) **Calendario.** `structuredContent.chart.points` es una lista de `{departure, return, price, usdPrice}` por día de salida (con `chart.currency`). Con ancla 2027-03-15 devolvió de 2027-02-13 a unos 6 semanas después. El calendario no recibe `adults`: los precios son por 1 adulto (orientativos). Se queda con el mínimo por día si hubiera repetidos.
+f) **Calendario.** `structuredContent.chart.points` es una lista de `{departure, return, price, usdPrice}` por día de salida (con `chart.currency`). Con ancla 2027-03-15 devolvió de 2027-02-13 a unos 6 semanas después. El calendario no recibe `adults`: los precios son por 1 adulto (orientativos) y el motor los multiplica por la cantidad de adultos. Una consulta cubre unos 48 días: del ancla menos 30 a la ancla más 17. Se queda con el mínimo por día si hubiera repetidos.
 
 g) **Cantidad.** Una búsqueda trae hasta `limit` resultados (el total disponible va en `pagination.totalAvailable`, 41 con `includeHiddenCity=false` y 300 con `true` para el mismo viaje).
+
+## Presupuestos y ritmo
+
+Con 3 consultas simultáneas y sin espacio entre ellas, una búsqueda de 3 meses hizo unas 40 consultas por minuto, recibió un 429 y tardó 34 s. Por eso:
+
+- **Calendario:** por origen y en secuencia. La primera ancla va 30 días después del inicio de la ventana; la siguiente, un día después del último día devuelto (último día + 31 como ancla). Se detiene al cubrir la ventana o a las 3 consultas por origen: 1 mes = 1 consulta por origen, 3 meses = 2, 4 meses = 3.
+- **Confirmación:** `SKIPLAGGED_CALL_BUDGET = 4` pares de fechas, tomados de la cabeza de la misma lista de candidatos que usa Google.
+- **Tope por búsqueda:** 12 consultas a Skiplagged entre calendario y confirmación; la confirmación recibe `min(4, lo que quede)`.
+- **Ritmo dentro de `SkiplaggedSource`:** `SKIPLAGGED_MAX_CONCURRENCY = 2`, al menos 1,0 s entre el inicio de una consulta y la siguiente, y un tope móvil entre búsquedas de 30 consultas cada 10 min (pasado el tope, las consultas se omiten con el detalle "límite de 30 consultas cada 10 min" y la fuente queda en "parcial" o "error", sin pausa de 60 min).
+- **429:** pausa la fuente 60 min, o lo que diga `Retry-After` cuando es más largo.
+- **Velocidad:** la fase de confirmación se corta a los 28 s (las consultas sin terminar se cancelan y el estado queda "parcial": "se cortó a los 28 s"). El corte duro de toda la búsqueda sigue en 60 s.
+- **Descartes:** la fuente informa cuántas tarjetas devolvió la API (`raw_count`) y cuántas descartó (`dropped`: ciudad oculta, forma distinta, precio 0 o negativo). La regla de "posible bloqueo" solo se aplica cuando la API no devolvió ninguna tarjeta.
 
 ## Rarezas
 

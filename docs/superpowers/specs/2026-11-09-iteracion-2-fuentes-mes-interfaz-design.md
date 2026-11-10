@@ -1,7 +1,7 @@
 # fly-trip, iteration 2: more sources, search by month, new interface (design)
 
 - **Date:** 2026-11-09
-- **Status:** draft, pending approval
+- **Status:** aprobado
 - **Base:** milestone 1, on `main` at 82751f0. Its spec, `2026-11-09-buscador-vuelos-baratos-design.md`, still applies to everything this document does not change.
 - **Marks:** "(decisión mía)" marks decisions made by whoever designed this document. Everything else was chosen by the user in the conversation.
 
