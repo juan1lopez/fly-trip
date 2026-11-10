@@ -1,0 +1,78 @@
+[
+  [
+    {
+      "legs": [
+        {
+          "airline": "Iberia",
+          "flight_number": "6830",
+          "departure_airport": "Comodoro Arturo Merino Benitez International Airport",
+          "arrival_airport": "Madrid Barajas International Airport",
+          "departure_datetime": "2027-03-19T00:50:00",
+          "arrival_datetime": "2027-03-19T17:30:00",
+          "duration": 760,
+          "departure_airport_name": null,
+          "arrival_airport_name": null,
+          "operating_airline": null,
+          "operating_flight_number": null,
+          "aircraft": null,
+          "legroom": null,
+          "legroom_short": null,
+          "amenities": null,
+          "overnight": false,
+          "co2_emissions_g": null
+        }
+      ],
+      "price": 600.0,
+      "currency": "USD",
+      "duration": 760,
+      "stops": 0,
+      "layovers": null,
+      "co2_emissions_g": null,
+      "co2_emissions_typical_g": null,
+      "co2_emissions_delta_pct": null,
+      "emissions_tag": null,
+      "self_transfer": false,
+      "mixed_cabin": null,
+      "primary_airline": null,
+      "primary_airline_name": null,
+      "booking_token": null
+    },
+    {
+      "legs": [
+        {
+          "airline": "Iberia",
+          "flight_number": "6831",
+          "departure_airport": "Madrid Barajas International Airport",
+          "arrival_airport": "Comodoro Arturo Merino Benitez International Airport",
+          "departure_datetime": "2027-04-04T23:55:00",
+          "arrival_datetime": "2027-04-05T08:45:00",
+          "duration": 770,
+          "departure_airport_name": null,
+          "arrival_airport_name": null,
+          "operating_airline": null,
+          "operating_flight_number": null,
+          "aircraft": null,
+          "legroom": null,
+          "legroom_short": null,
+          "amenities": null,
+          "overnight": false,
+          "co2_emissions_g": null
+        }
+      ],
+      "price": 980.0,
+      "currency": "USD",
+      "duration": 770,
+      "stops": 0,
+      "layovers": null,
+      "co2_emissions_g": null,
+      "co2_emissions_typical_g": null,
+      "co2_emissions_delta_pct": null,
+      "emissions_tag": null,
+      "self_transfer": false,
+      "mixed_cabin": null,
+      "primary_airline": null,
+      "primary_airline_name": null,
+      "booking_token": null
+    }
+  ]
+]

@@ -1,0 +1,110 @@
+"""Presentation helpers shared by the CLI and the web UI."""
+
+from collections.abc import Iterable, Mapping
+from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
+
+from flytrip.core.models import Baggage, Itinerary, Leg, TransferCost
+from flytrip.engine.search import SourceStatus
+
+ORIGIN_LABELS = {
+    "MDZ": "Mendoza (todo en avión)",
+    "SCL": "Vía Santiago",
+    "EZE": "Vía Ezeiza",
+}
+
+SOURCE_NAMES = {"kiwi": "Kiwi", "google": "Google Flights"}
+UNKNOWN_SEPARATE = "No se pudo verificar si son pasajes separados"
+
+
+def origin_label(code: str) -> str:
+    return ORIGIN_LABELS.get(code, f"Desde {code}")
+
+
+def format_number(value: Decimal) -> str:
+    rounded = int(value.quantize(Decimal(1), rounding=ROUND_HALF_UP))
+    return f"{rounded:,}".replace(",", ".")
+
+
+def format_usd(value: Decimal) -> str:
+    return f"{format_number(value)} USD"
+
+
+def format_duration(minutes: int) -> str:
+    hours, rest = divmod(minutes, 60)
+    if hours == 0:
+        return f"{rest} min"
+    return f"{hours} h {rest:02d} min" if rest else f"{hours} h"
+
+
+def format_short_date(d: date) -> str:
+    return f"{d:%d/%m}"
+
+
+def route_label(leg: Leg) -> str:
+    airports = [leg.segments[0].from_airport, *(s.to_airport for s in leg.segments)]
+    return " → ".join(airports)
+
+
+def price_breakdown(it: Itinerary, home_airport: str = "MDZ") -> str:
+    price = format_number(it.price_usd)
+    if it.transfer is not None:
+        return f"{price} + {format_number(it.transfer.cost_usd_roundtrip)} traslado"
+    if it.origin == home_airport:
+        return price
+    return f"{price} + traslado (sin configurar)"
+
+
+def missing_transfer_origins(
+    origins: Iterable[str], transfers: Mapping[str, TransferCost | None], home_airport: str = "MDZ"
+) -> list[str]:
+    """Origins away from home whose transfer is not configured (their total is incomplete)."""
+    return [o for o in origins if o != home_airport and transfers.get(o) is None]
+
+
+def status_label(status: SourceStatus) -> str:
+    name = SOURCE_NAMES.get(status.source, status.source)
+    match status.state:
+        case "ok":
+            seconds = f"{(status.latency_ms or 0) / 1000:.1f}".replace(".", ",")
+            return f"{name}: OK ({status.count} en {seconds} s)"
+        case "partial":
+            return f"{name}: parcial — {status.detail}"
+        case "paused":
+            return f"{name}: en pausa — {status.detail}"
+        case "error":
+            return f"{name}: error — {status.detail}"
+        case "timeout":
+            return f"{name}: sin respuesta — {status.detail}"
+        case "skipped":
+            return f"{name}: omitida — {status.detail}"
+        case "pending":
+            return f"{name}: esperando"
+        case "running":
+            return f"{name}: buscando…"
+
+
+def baggage_label(baggage: Baggage | None) -> str:
+    if baggage is None:
+        return "desconocido"
+    included = [
+        label
+        for label, count in (
+            ("mochila", baggage.personal_item),
+            ("cabina", baggage.cabin_bag),
+            ("valija", baggage.checked_bag),
+        )
+        if count
+    ]
+    return " + ".join(included) if included else "sin equipaje incluido"
+
+
+def age_label(fetched_at: datetime, now: datetime) -> str:
+    minutes = max(0, int((now - fetched_at).total_seconds() // 60))
+    if minutes < 1:
+        return "hace instantes"
+    if minutes < 60:
+        return f"hace {minutes} min"
+    if minutes < 60 * 24:
+        return f"hace {minutes // 60} h"
+    return f"hace {minutes // (60 * 24)} d"

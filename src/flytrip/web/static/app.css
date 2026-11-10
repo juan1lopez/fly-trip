@@ -1,0 +1,29 @@
+:root { --fg: #1c2430; --muted: #5b6676; --line: #d9dee6; --accent: #0b6bcb; --warn: #9a5b00; --bg: #f6f8fb; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+header { display: flex; gap: 2rem; align-items: baseline; padding: .8rem 2rem; background: #fff; border-bottom: 1px solid var(--line); }
+.brand { font-weight: 700; font-size: 1.2rem; text-decoration: none; color: var(--accent); }
+nav a { margin-right: 1rem; color: var(--fg); }
+main { max-width: 1000px; margin: 1.5rem auto; padding: 0 1rem; }
+form { display: grid; gap: .8rem; background: #fff; padding: 1rem; border: 1px solid var(--line); border-radius: 8px; }
+label { display: grid; gap: .2rem; font-size: .9rem; color: var(--muted); }
+label.inline { display: inline-flex; gap: .4rem; align-items: center; margin-right: 1rem; }
+input { padding: .4rem; border: 1px solid var(--line); border-radius: 4px; font: inherit; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; }
+button, .buy { background: var(--accent); color: #fff; border: 0; padding: .5rem 1rem; border-radius: 6px; font: inherit; text-decoration: none; cursor: pointer; display: inline-block; margin: .2rem .4rem .2rem 0; }
+.errors { color: #b00020; background: #fdecee; padding: .6rem 1.6rem; border-radius: 6px; }
+.status-bar { list-style: none; display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; }
+.status-bar li { background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: .2rem .8rem; font-size: .85rem; }
+.status-error, .status-timeout { border-color: #b00020 !important; }
+.status-paused, .status-skipped, .status-partial { border-color: var(--warn) !important; }
+.origin-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.origin-card, .balance, .itinerary { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 1rem; }
+.itineraries { display: grid; gap: .8rem; }
+.itinerary { display: grid; grid-template-columns: 11rem 1fr; gap: 1rem; }
+.total { font-size: 1.3rem; font-weight: 700; margin: 0; }
+.breakdown, .meta, .note, .empty { color: var(--muted); font-size: .9rem; }
+.leg { margin-bottom: .4rem; }
+.layover { margin-left: 1rem; font-size: .9rem; color: var(--muted); }
+.tag { background: #eef2f7; border-radius: 4px; padding: 0 .4rem; margin-left: .3rem; font-size: .8rem; }
+.warning { color: var(--warn); font-weight: 600; margin: .3rem 0; }
+.ok { color: #1b7a3a; }

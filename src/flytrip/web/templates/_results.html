@@ -1,0 +1,85 @@
+{% macro buy(it) %}
+{% for offer in it.offers|sort(attribute="price_usd") %}
+  {% if offer.booking_url.startswith(("https://", "http://")) %}
+  <a class="buy" href="{{ offer.booking_url }}" target="_blank" rel="noopener noreferrer">Comprar en {{ source_names.get(offer.source, offer.source) }}</a>
+  {% endif %}
+{% endfor %}
+{% endmacro %}
+
+{% macro leg(label, l) %}
+<div class="leg">
+  <strong>{{ label }}</strong>
+  {{ format_short_date(l.segments[0].departure_local.date()) }} · {{ route_label(l) }}
+  · {{ format_duration(l.duration_minutes) }}
+  · {{ "directo" if l.stops == 0 else l.stops ~ (" escala" if l.stops == 1 else " escalas") }}
+  {% for lay in l.layovers %}
+  <div class="layover">Escala en {{ lay.airport }}: {{ format_duration(lay.minutes) }}
+    {% if lay.overnight %}<span class="tag">pasa la noche</span>{% endif %}
+    {% if lay.airport_change %}<span class="tag">cambia de aeropuerto</span>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% if transfers_missing %}
+<p class="warning">Configura el traslado a Santiago/Ezeiza en <a href="/ajustes">Ajustes</a> para ver el total real.</p>
+{% endif %}
+<h2>Lo mejor por origen</h2>
+<div class="origin-cards">
+{% for code in snapshot.query.origins %}
+  {% set best = snapshot.best_per_origin.get(code) %}
+  <article class="origin-card">
+    <h3>{{ origin_label(code) }}</h3>
+    {% if best %}
+      <p class="total">{{ format_usd(best.total_from_home_usd) }}</p>
+      <p class="breakdown">{{ price_breakdown(best) }}</p>
+      <p>{{ format_short_date(best.outbound.segments[0].departure_local.date()) }} · {{ route_label(best.outbound) }}</p>
+      {{ buy(best) }}
+    {% elif code in snapshot.failed_origins %}
+      <p class="empty failed">No se pudo consultar este origen</p>
+      <p class="breakdown">{{ snapshot.failed_origins[code] }}</p>
+    {% else %}
+      <p class="empty">Sin resultados para este origen</p>
+    {% endif %}
+  </article>
+{% endfor %}
+</div>
+
+{% if snapshot.best_balance %}
+{% set best = snapshot.best_balance %}
+<h2>Mejor equilibrio</h2>
+<article class="balance">
+  <p class="total">{{ format_usd(best.total_from_home_usd) }} <span class="breakdown">({{ price_breakdown(best) }})</span></p>
+  <p>{{ origin_label(best.origin) }} · {{ format_short_date(best.outbound.segments[0].departure_local.date()) }} · {{ route_label(best.outbound) }}</p>
+  {{ buy(best) }}
+</article>
+{% endif %}
+
+<h2>Todos los pasajes ({{ snapshot.itineraries|length }})</h2>
+{% if snapshot.from_cache %}<p class="note">Resultados guardados{% if snapshot.cache_age_minutes is not none %} hace {{ snapshot.cache_age_minutes }} min{% endif %}. <button type="button" id="refresh">Actualizar</button></p>{% endif %}
+<div class="itineraries">
+{% for it in snapshot.itineraries %}
+  <article class="itinerary">
+    <div class="price">
+      <span class="total">{{ format_usd(it.total_from_home_usd) }}</span>
+      <span class="breakdown">{{ price_breakdown(it) }}</span>
+    </div>
+    <div class="detail">
+      {{ leg("Ida", it.outbound) }}
+      {% if it.inbound %}{{ leg("Vuelta", it.inbound) }}{% endif %}
+      <p class="meta">
+        {% set airlines = [] %}
+        {% for l in ([it.outbound, it.inbound] if it.inbound else [it.outbound]) %}{% for s in l.segments %}{% if s.carrier_name not in airlines %}{% set _ = airlines.append(s.carrier_name) %}{% endif %}{% endfor %}{% endfor %}
+        {{ airlines|join(", ") }} · Equipaje: {{ baggage_label(it.baggage) }}
+        · Precio visto {{ age_label(it.best_offer.fetched_at, now) }}
+      </p>
+      {% if it.separate_tickets %}
+      <p class="warning">⚠ Pasajes separados: si pierdes la conexión, nadie te recoloca</p>
+      {% elif it.separate_tickets is none %}
+      <p class="note unknown-separate">? {{ unknown_separate }}</p>
+      {% endif %}
+      {{ buy(it) }}
+    </div>
+  </article>
+{% endfor %}
+</div>
