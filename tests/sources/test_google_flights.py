@@ -122,6 +122,22 @@ def test_normalize_scenario_fixtures(name, origin, destination):
     assert all(it.offers[0].booking_url.startswith("https://") for it in items)
 
 
+def test_recorded_fixtures_confirm_live_facts():
+    one = load_fli("madrid_scl_rt.json")
+    two = load_fli("madrid_scl_rt_2adults.json")
+    # (a) USD respected; (c) datetimes naive; (b) the last tuple element is the pair's total.
+    for pair in one:
+        assert all(p.currency == "USD" for p in pair)
+        assert all(leg.departure_datetime.tzinfo is None for p in pair for leg in p.legs)
+        assert pair[-1].price is not None and pair[-1].price >= pair[0].price
+    # (d) with 2 adults, Google's displayed price is already the total for both.
+    assert two[0][-1].price == 2 * one[0][-1].price
+    [first, *_] = normalize_results(
+        two, origin="SCL", destination="MAD", adults=2, fetched_at=FETCHED
+    )
+    assert first.price_usd == Decimal(str(two[0][-1].price))
+
+
 @pytest.mark.parametrize("is_total,factor", [(True, 1), (False, 2)])
 def test_adults_price_follows_total_constant(monkeypatch, is_total, factor):
     monkeypatch.setattr(google_flights, "GOOGLE_PRICE_IS_TOTAL", is_total)
@@ -245,17 +261,39 @@ async def test_google_is_called_again_once_the_429_block_expires():
 
 def test_real_fli_client_makes_one_http_request_per_fetch():
     class FailingSession:
-        posts = 0
+        gets = 0
 
-        def post(self, url, **kwargs):
-            FailingSession.posts += 1
+        def get(self, url, **kwargs):
+            FailingSession.gets += 1
             raise RuntimeError("boom")
 
     client = RealFliClient()
     client._client._session = lambda: FailingSession()  # type: ignore[method-assign]
     with pytest.raises(SearchClientError):
         client.search(build_filters(ONEWAY), top_n=1, currency="USD", language="es", country="AR")
-    assert FailingSession.posts == 1
+    assert FailingSession.gets == 1
+
+
+def test_real_fli_client_does_not_refetch_a_page_without_payload():
+    class EmptyPageSession:
+        gets = 0
+
+        def get(self, url, **kwargs):
+            EmptyPageSession.gets += 1
+
+            class Response:
+                text = "<html>consent</html>"
+
+                def raise_for_status(self):
+                    return None
+
+            return Response()
+
+    client = RealFliClient()
+    client._client._session = lambda: EmptyPageSession()  # type: ignore[method-assign]
+    with pytest.raises(SearchParseError):
+        client.search(build_filters(ONEWAY), top_n=1, currency="USD", language="es", country="AR")
+    assert EmptyPageSession.gets == 1
 
 
 def _synthetic_oneway_with(**leg_changes):
