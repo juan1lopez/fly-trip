@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 SKIPLAGGED_URL = "https://mcp.skiplagged.com/mcp"
 SKIPLAGGED_MAX_CONCURRENCY = 3
 SKIPLAGGED_SEARCH_LIMIT = 20
+# Per HTTP call, counted once the call holds a semaphore slot (queueing does not count).
+SKIPLAGGED_REQUEST_TIMEOUT_S = 30
 SKIPLAGGED_CALL_BUDGET = 12  # search calls per confirmation phase, like Google's fetch budget
 # Con adults=2 el precio ya es el total del grupo (ver docs/sources/skiplagged.md).
 SKIPLAGGED_PRICE_IS_TOTAL = True
@@ -322,8 +324,10 @@ class SkiplaggedSource:
         url: str = SKIPLAGGED_URL,
         clock: Callable[[], datetime] = utc_now,
         max_concurrency: int = SKIPLAGGED_MAX_CONCURRENCY,
+        request_timeout_s: float = SKIPLAGGED_REQUEST_TIMEOUT_S,
     ) -> None:
         self._client = client
+        self._request_timeout_s = request_timeout_s
         self._url = url
         self._clock = clock
         self._semaphore = asyncio.Semaphore(max_concurrency)
@@ -344,9 +348,13 @@ class SkiplaggedSource:
             # Calls queued behind a 429 already passed the engine's pause check.
             if self._is_blocked():
                 raise SourceBlocked(SKIPLAGGED_RATE_LIMITED)
-            response = await self._client.post(
-                self._url, json=_rpc_body(tool, arguments), headers=SKIPLAGGED_HEADERS
-            )
+            try:
+                async with asyncio.timeout(self._request_timeout_s):
+                    response = await self._client.post(
+                        self._url, json=_rpc_body(tool, arguments), headers=SKIPLAGGED_HEADERS
+                    )
+            except TimeoutError:
+                raise httpx.ReadTimeout("sin respuesta a tiempo") from None
         if response.status_code == 429:
             self._block()
             raise SourceBlocked(SKIPLAGGED_RATE_LIMITED)

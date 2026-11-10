@@ -372,3 +372,37 @@ async def test_unexpected_parse_errors_become_formato_cambiado():
         result = await _source(client).search(EXACT)
     assert result.status == "error"
     assert result.detail == "Skiplagged: formato cambiado"
+
+
+async def test_queueing_behind_the_semaphore_does_not_count_toward_the_timeout():
+    active = 0
+    peak = 0
+
+    async def slow(request: httpx.Request) -> httpx.Response:
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.1)
+        active -= 1
+        return httpx.Response(200, text=fixture("skiplagged", "calendar_eze_mad.sse"))
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(slow))
+    source = SkiplaggedSource(client, max_concurrency=3, request_timeout_s=0.25)
+    # 9 calls in 3 waves of 0.1 s: the last wave waits 0.2 s queued, then runs 0.1 s.
+    results = await asyncio.gather(
+        *(source.calendar("EZE", "MAD", date(2027, 3, 15), None) for _ in range(9))
+    )
+    assert peak == 3
+    assert [r.status for r in results] == ["ok"] * 9
+
+
+async def test_a_call_slower_than_the_request_timeout_times_out():
+    async def stuck(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(5)
+        return httpx.Response(200)
+
+    source = SkiplaggedSource(
+        httpx.AsyncClient(transport=httpx.MockTransport(stuck)), request_timeout_s=0.05
+    )
+    result = await source.calendar("EZE", "MAD", date(2027, 3, 15), None)
+    assert result.status == "timeout"

@@ -172,13 +172,11 @@ class SearchEngine:
         kiwi_timeout_s: float = 20,
         google_timeout_s: float = 40,
         skiplagged: CalendarSource | None = None,
-        skiplagged_timeout_s: float = 30,
         hard_timeout_s: float = 60,
     ) -> None:
         self.kiwi = kiwi
         self.google = google
         self.skiplagged = skiplagged
-        self._skiplagged_timeout_s = skiplagged_timeout_s
         self._settings_provider = settings_provider
         self._cache = cache
         self._pauses = pauses
@@ -273,15 +271,23 @@ class SearchEngine:
                 statuses[running.source] = running
                 yield StatusEvent(status=running)
                 active.append((source, pairs, timeout_s, silent))
-            outcomes = await asyncio.gather(
-                *(
+            tasks = [
+                asyncio.create_task(
                     self._confirm(source, query, pairs, timeout_s, deadline, silent)
-                    for source, pairs, timeout_s, silent in active
                 )
-            )
-            for items, status in outcomes:
-                confirmed.extend(items)
-                yield self._finish(status, statuses, key)
+                for source, pairs, timeout_s, silent in active
+            ]
+            try:
+                # Each source reports as soon as it finishes, not when the slowest does.
+                for finished in asyncio.as_completed(tasks):
+                    items, status = await finished
+                    confirmed.extend(items)
+                    yield self._finish(status, statuses, key)
+            finally:
+                pending = [t for t in tasks if not t.done()]
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
 
         entries, note = (
             await self._calendar_wait(calendar_task, deadline) if calendar_task else ((), "")
@@ -290,7 +296,9 @@ class SearchEngine:
         if not query.allow_separate_tickets:
             merged = [it for it in merged if it.separate_tickets is not True]
         final = self._snapshot(query, merged, statuses, settings, failed_origins, entries, note)
-        if any(status.state == "ok" for status in statuses.values()):
+        calendar_failed = query.calendar and bool(final.calendar_note)
+        # A snapshot whose calendar failed is not cached: the next search should retry it.
+        if not calendar_failed and any(s.state == "ok" for s in statuses.values()):
             self._cache.put(key, final.model_dump_json())
         yield SnapshotEvent(snapshot=final, final=True)
 
@@ -316,7 +324,7 @@ class SearchEngine:
                 (
                     self.skiplagged,
                     select_google_candidates(found, query, budget),
-                    self._skiplagged_timeout_s,
+                    self._hard_timeout_s,  # the source times each HTTP call itself
                     SKIPLAGGED_SILENT_BLOCK,
                 )
             )
@@ -397,16 +405,14 @@ class SearchEngine:
             return (), CALENDAR_UNAVAILABLE.format(reason=_pause_detail(*pause))
         calls = self._calendar_requests(query)
         tasks = [
-            asyncio.create_task(
-                asyncio.wait_for(
-                    skiplagged.calendar(origin, query.destination, anchor, back),
-                    timeout=self._skiplagged_timeout_s,
-                )
-            )
+            asyncio.create_task(skiplagged.calendar(origin, query.destination, anchor, back))
             for origin, anchor, back in calls
         ]
         try:
-            await asyncio.wait(tasks, timeout=max(deadline - asyncio.get_running_loop().time(), 0))
+            if tasks:
+                await asyncio.wait(
+                    tasks, timeout=max(deadline - asyncio.get_running_loop().time(), 0)
+                )
         finally:
             late = [t for t in tasks if not t.done()]
             for task in late:
@@ -425,12 +431,14 @@ class SearchEngine:
                 reasons.append(result.detail)
                 continue
             entries.extend(
-                (origin, day, price)
+                (origin, day, price * query.adults)  # the calendar prices one person
                 for day, price in result.days
                 if query.depart_from <= day <= query.depart_to
             )
         if reasons and len(reasons) == len(calls):
             return (), CALENDAR_UNAVAILABLE.format(reason=reasons[0])
+        if not entries:
+            return (), CALENDAR_UNAVAILABLE.format(reason="sin datos")
         return tuple(entries), ""
 
     def _calendar_outcome(self, task: "asyncio.Task[CalendarResult]") -> CalendarResult | str:
@@ -446,9 +454,13 @@ class SearchEngine:
     @staticmethod
     def _calendar_result(task: CalendarTask) -> tuple[tuple[CalendarEntry, ...], str]:
         """What the calendar has so far: empty while it is still running."""
-        if task.done() and not task.cancelled() and task.exception() is None:
-            return task.result()
-        return (), ""
+        if not task.done():
+            return (), ""
+        if task.cancelled():
+            return (), CALENDAR_UNAVAILABLE.format(reason="se interrumpió")
+        if task.exception() is not None:
+            return (), CALENDAR_UNAVAILABLE.format(reason="error inesperado")
+        return task.result()
 
     async def _calendar_wait(
         self, task: CalendarTask, deadline: float

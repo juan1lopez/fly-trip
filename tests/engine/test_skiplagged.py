@@ -227,3 +227,52 @@ def test_old_cached_snapshot_without_calendar_fields_still_validates():
         ).model_dump_json(exclude={"calendar", "calendar_note", "calendar_entries"})
     )
     assert snap.calendar == () and snap.calendar_note == ""
+
+
+async def test_failed_calendar_is_not_cached(tmp_path, clock, pauses):
+    def broken(origin: str, anchor: date) -> CalendarResult:
+        return CalendarResult("skiplagged", "error", detail="roto")
+
+    sk = FakeSkiplagged(_skiplagged_hit, calendar=broken)
+    engine = _engine(tmp_path, clock, pauses, sk)
+    await collect(engine.run(q(calendar=True)))
+    again = await collect(engine.run(q(calendar=True)))
+    assert not again[-1].snapshot.from_cache and len(sk.calendar_calls) == 18
+
+
+async def test_empty_calendar_carries_a_note(tmp_path, clock, pauses):
+    def empty(origin: str, anchor: date) -> CalendarResult:
+        return CalendarResult("skiplagged", "ok", days=())
+
+    engine = _engine(tmp_path, clock, pauses, FakeSkiplagged(_skiplagged_hit, calendar=empty))
+    final = (await collect(engine.run(q(calendar=True))))[-1].snapshot
+    assert final.calendar_note == "Calendario no disponible: sin datos"
+
+
+async def test_calendar_prices_are_scaled_by_adults(tmp_path, clock, pauses):
+    engine = _engine(tmp_path, clock, pauses, FakeSkiplagged(_skiplagged_hit))
+    query = q(calendar=True, origins=("EZE",), adults=2)
+    snap = (await collect(engine.run(query)))[-1].snapshot
+    # Base cheapest is 970 per person; EZE transfer (200) is added once, after the multiplication.
+    assert min(d.price_usd for d in snap.calendar) == Decimal("2140")
+
+
+async def test_each_source_status_streams_when_it_finishes(tmp_path, clock, pauses):
+    from flytrip.engine.search import StatusEvent
+
+    sk = FakeSkiplagged(_skiplagged_hit)
+    engine = build_engine(
+        tmp_path,
+        clock,
+        pauses,
+        kiwi=FakeSource("kiwi", kiwi_answer()),
+        google=FakeSource("google", google_answer(), delay_s=0.4),
+        skiplagged=sk,
+    )
+    stamps: dict[str, float] = {}
+    import time
+
+    async for event in engine.run(q()):
+        if isinstance(event, StatusEvent) and event.status.state == "ok":
+            stamps[event.status.source] = time.monotonic()
+    assert stamps["google"] - stamps["skiplagged"] > 0.2
