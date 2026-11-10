@@ -68,3 +68,17 @@ def test_month_names_are_spanish():
     from flytrip.core.months import MONTH_NAMES
 
     assert MONTH_NAMES[2] == "marzo" and len(MONTH_NAMES) == 12
+
+
+def test_default_months_start_from_tomorrows_month():
+    assert default_months(date(2026, 11, 30)) == ["2026-12", "2027-01", "2027-02"]
+    assert default_months(date(2026, 12, 31)) == ["2027-01", "2027-02", "2027-03"]
+
+
+def test_validate_rejects_only_a_window_fully_in_the_past():
+    # An earlier start is clamped to tomorrow by months_window, so it is not an error.
+    assert validate_months("2026-10", "2026-12", TODAY) == []
+    assert validate_months("2026-09", "2026-10", TODAY) == ["Ese mes ya pasó: 2026-10."]
+    assert validate_months("2026-10", "2026-11", date(2026, 11, 30)) == [
+        "Ese mes ya terminó: 2026-11."
+    ]

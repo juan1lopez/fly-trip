@@ -33,6 +33,10 @@ class SourceResult:
     detail: str = ""
     latency_ms: int = 0
     fetches: int = 0
+    # What the API itself returned (cards), when the source knows; None means "same as itineraries".
+    raw_count: int | None = None
+    # Results the source or the engine threw away (wrong origin, hidden city, wrong shape).
+    dropped: int = 0
 
 
 class Source(Protocol):
@@ -42,9 +46,10 @@ class Source(Protocol):
 
 
 class SourceBlocked(Exception):  # noqa: N818
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, pause_minutes: int = BLOCK_PAUSE_MINUTES) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.pause_minutes = pause_minutes
 
 
 class PauseRegistry:
@@ -115,8 +120,8 @@ async def run_safely(
     try:
         result = await asyncio.wait_for(source.search(request), timeout=timeout_s)
     except SourceBlocked as blocked:
-        pauses.pause(source.name, BLOCK_PAUSE_MINUTES, blocked.reason)
-        until = clock() + timedelta(minutes=BLOCK_PAUSE_MINUTES)
+        pauses.pause(source.name, blocked.pause_minutes, blocked.reason)
+        until = clock() + timedelta(minutes=blocked.pause_minutes)
         return _paused_result(source.name, until, blocked.reason, elapsed_ms())
     except TimeoutError:
         return SourceResult(

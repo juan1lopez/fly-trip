@@ -57,7 +57,7 @@ def _normalize(name: str, adults: int = 2):
 
 def test_constants():
     assert SKIPLAGGED_URL == "https://mcp.skiplagged.com/mcp"
-    assert SKIPLAGGED_MAX_CONCURRENCY == 3
+    assert SKIPLAGGED_MAX_CONCURRENCY == 2
     assert SKIPLAGGED_HEADERS["User-Agent"] == "fly-trip/0.1 (uso personal)"
     assert SKIPLAGGED_HEADERS["Accept"] == "application/json, text/event-stream"
 
@@ -214,6 +214,7 @@ def test_calendar_tool_error():
 
 
 def _source(client: httpx.AsyncClient, **kwargs) -> SkiplaggedSource:
+    kwargs.setdefault("min_interval_s", 0)  # pacing has its own tests
     return SkiplaggedSource(client, clock=CLOCK, **kwargs)
 
 
@@ -387,7 +388,7 @@ async def test_queueing_behind_the_semaphore_does_not_count_toward_the_timeout()
         return httpx.Response(200, text=fixture("skiplagged", "calendar_eze_mad.sse"))
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(slow))
-    source = SkiplaggedSource(client, max_concurrency=3, request_timeout_s=0.25)
+    source = SkiplaggedSource(client, max_concurrency=3, request_timeout_s=0.25, min_interval_s=0)
     # 9 calls in 3 waves of 0.1 s: the last wave waits 0.2 s queued, then runs 0.1 s.
     results = await asyncio.gather(
         *(source.calendar("EZE", "MAD", date(2027, 3, 15), None) for _ in range(9))
@@ -402,7 +403,116 @@ async def test_a_call_slower_than_the_request_timeout_times_out():
         return httpx.Response(200)
 
     source = SkiplaggedSource(
-        httpx.AsyncClient(transport=httpx.MockTransport(stuck)), request_timeout_s=0.05
+        httpx.AsyncClient(transport=httpx.MockTransport(stuck)),
+        request_timeout_s=0.05,
+        min_interval_s=0,
     )
     result = await source.calendar("EZE", "MAD", date(2027, 3, 15), None)
     assert result.status == "timeout"
+
+
+class FakeTime:
+    """An injected monotonic clock whose sleep just moves it forward."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _paced(handler, fake: FakeTime, **kwargs) -> SkiplaggedSource:
+    return SkiplaggedSource(
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        clock=CLOCK,
+        monotonic=fake.monotonic,
+        sleep=fake.sleep,
+        **kwargs,
+    )
+
+
+async def _ok_calendar(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, text=fixture("skiplagged", "calendar_eze_mad.sse"))
+
+
+async def test_calls_start_at_least_one_second_apart():
+    fake = FakeTime()
+    starts: list[float] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        starts.append(fake.now)
+        return await _ok_calendar(request)
+
+    source = _paced(handler, fake)
+    results = await asyncio.gather(
+        *(source.calendar("EZE", "MAD", date(2027, 3, 15), None) for _ in range(4))
+    )
+    assert [r.status for r in results] == ["ok"] * 4
+    assert all(b - a >= 1.0 for a, b in zip(starts, starts[1:], strict=False))
+    assert starts[-1] - starts[0] >= 3.0
+
+
+async def test_rolling_cap_skips_calls_beyond_30_in_10_minutes():
+    fake = FakeTime()
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return await _ok_calendar(request)
+
+    source = _paced(handler, fake, min_interval_s=0)
+    results = [await source.calendar("EZE", "MAD", date(2027, 3, 15), None) for _ in range(31)]
+    assert [r.status for r in results[:30]] == ["ok"] * 30
+    assert results[30].status == "error" and "30 consultas" in results[30].detail
+    assert calls == 30
+    fake.now += 601  # the window rolls
+    again = await source.calendar("EZE", "MAD", date(2027, 3, 15), None)
+    assert again.status == "ok" and calls == 31
+
+
+async def test_search_over_the_cap_is_an_error_result_not_a_block():
+    fake = FakeTime()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=fixture("skiplagged", "empty.sse"))
+
+    source = _paced(handler, fake, min_interval_s=0, window_calls=1)
+    assert (await source.search(EXACT)).status == "ok"
+    capped = await source.search(EXACT)
+    assert capped.status == "error" and "consultas" in capped.detail
+
+
+async def test_429_with_a_long_retry_after_extends_the_pause():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"Retry-After": str(3 * 3600)})
+
+    source = _paced(handler, FakeTime())
+    with pytest.raises(SourceBlocked) as info:
+        await source.search(EXACT)
+    assert info.value.pause_minutes == 180
+    result = await source.calendar("EZE", "MAD", date(2027, 3, 15), None)
+    assert result.status == "paused" and result.pause_minutes == 180
+
+
+async def test_429_with_a_short_or_missing_retry_after_keeps_the_hour():
+    async def short(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"Retry-After": "30"})
+
+    with pytest.raises(SourceBlocked) as info:
+        await _paced(short, FakeTime()).search(EXACT)
+    assert info.value.pause_minutes == 60
+
+
+async def test_search_reports_raw_and_dropped_counts():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=fixture("skiplagged", "hidden_city.sse"))
+
+    result = await _paced(handler, FakeTime(), min_interval_s=0).search(EXACT)
+    assert result.raw_count is not None and result.raw_count > len(result.itineraries)
+    assert result.dropped >= 1

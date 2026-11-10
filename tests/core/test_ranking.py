@@ -72,3 +72,21 @@ def test_apply_transfers_by_origin():
     [mdz] = apply_transfers([make_itinerary(origin="MDZ", price="934")], {"SCL": T("80", "7")})
     assert scl.total_from_home_usd == Decimal("838")
     assert mdz.transfer is None and mdz.total_from_home_usd == Decimal("934")
+
+
+def test_keep_true_origin_drops_wrong_departures_and_returns():
+    from flytrip.core.ranking import keep_true_origin
+    from tests.factories import itin_on
+
+    good = itin_on("MDZ", "2027-03-10", "2027-03-25", 900)
+    wrong_out = itin_on("SCL", "2027-03-10", "2027-03-25", 700).model_copy(
+        update={"id": "w", "origin": "MDZ"}
+    )
+    base = itin_on("MDZ", "2027-03-11", "2027-03-26", 800)
+    assert base.inbound is not None
+    seg = base.inbound.segments[-1].model_copy(update={"to_airport": "EZE"})
+    inbound = base.inbound.model_copy(update={"segments": (*base.inbound.segments[:-1], seg)})
+    wrong_back = base.model_copy(update={"id": "b", "inbound": inbound})
+    kept, dropped = keep_true_origin([good, wrong_out, wrong_back], "MDZ")
+    assert kept == [good] and dropped == 2
+    assert keep_true_origin([], "MDZ") == ([], 0)

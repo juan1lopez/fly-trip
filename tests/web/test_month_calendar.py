@@ -96,7 +96,8 @@ def test_month_form_without_end_month_uses_a_single_month(settings_store):
 
 
 def test_month_form_validation_errors_are_spanish(client):
-    r = client.get("/buscar/validar?" + MONTH_QS.replace("mes=2027-03", "mes=2020-01"))
+    past = MONTH_QS.replace("mes=2027-03", "mes=2020-01").replace("mes=2027-04", "mes=2020-02")
+    r = client.get("/buscar/validar?" + past)
     assert r.status_code == 422 and "Ese mes ya pasó" in unescape(r.text)
     r = client.get("/buscar/validar?" + MONTH_QS.replace("mes=2027-03", "mes=marzo"))
     assert r.status_code == 422 and "Mes inválido" in unescape(r.text)

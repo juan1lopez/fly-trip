@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from flytrip.core.calendar import cheap_days, month_grid
@@ -183,9 +183,10 @@ def calendar_months(snapshot: SearchSnapshot) -> list[MonthView]:
 
 
 def month_options(today: date, count: int = 6) -> list[tuple[str, str]]:
-    """(`AAAA-MM`, short label) for the current month and the next `count - 1`."""
+    """(`AAAA-MM`, short label) for the month of tomorrow and the next `count - 1`."""
     options: list[tuple[str, str]] = []
-    year, month = today.year, today.month
+    tomorrow = today + timedelta(days=1)
+    year, month = tomorrow.year, tomorrow.month
     for _ in range(count):
         options.append(
             (f"{year:04d}-{month:02d}", f"{MONTH_NAMES[month - 1][:3].capitalize()} {year}")

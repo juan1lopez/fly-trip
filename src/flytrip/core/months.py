@@ -40,9 +40,10 @@ def _label(year: int, month: int) -> str:
 
 
 def default_months(today: date) -> list[str]:
-    """The current month and the next two."""
+    """The month of tomorrow and the next two (tomorrow, because today cannot be booked)."""
     months: list[str] = []
-    year, month = today.year, today.month
+    tomorrow = today + timedelta(days=1)
+    year, month = tomorrow.year, tomorrow.month
     for _ in range(3):
         months.append(_label(year, month))
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)
@@ -69,10 +70,12 @@ def validate_months(first: str, last: str | None, today: date) -> list[str]:
     span = (last_ym[0] - first_ym[0]) * 12 + last_ym[1] - first_ym[1] + 1
     if span > MAX_MONTHS:
         errors.append(f"Puedes elegir hasta {MAX_MONTHS} meses.")
-    if first_ym < (today.year, today.month):
-        errors.append(f"Ese mes ya pasó: {first}.")
-    elif date(*first_ym, calendar.monthrange(*first_ym)[1]) <= today:
-        errors.append(f"Ese mes ya terminó: {first}.")
+    # Only a window that is entirely in the past is wrong: an earlier start is clamped.
+    end_text = last if last is not None else first
+    if last_ym < (today.year, today.month):
+        errors.append(f"Ese mes ya pasó: {end_text}.")
+    elif date(*last_ym, calendar.monthrange(*last_ym)[1]) <= today:
+        errors.append(f"Ese mes ya terminó: {end_text}.")
     return errors
 
 

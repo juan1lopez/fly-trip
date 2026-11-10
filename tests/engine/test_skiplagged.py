@@ -1,6 +1,9 @@
+import asyncio
 from collections.abc import Callable
 from datetime import date, timedelta
 from decimal import Decimal
+
+import pytest
 
 from flytrip.core.models import Offer
 from flytrip.engine.search import SearchSnapshot
@@ -15,7 +18,10 @@ CalendarAnswer = Callable[[str, date], CalendarResult]
 
 
 def ok_calendar(origin: str, anchor: date) -> CalendarResult:
-    days = tuple((anchor + timedelta(days=i), Decimal(1000 + 10 * i)) for i in range(-3, 4))
+    # Like the real tool: about 48 days, from anchor - 30 to anchor + 17; cheapest at anchor - 3.
+    days = tuple(
+        (anchor + timedelta(days=i), Decimal(970 + 10 * abs(i + 3))) for i in range(-30, 18)
+    )
     return CalendarResult(source="skiplagged", status="ok", days=days)
 
 
@@ -83,20 +89,76 @@ async def test_calendar_runs_only_in_month_mode(tmp_path, clock, pauses):
     plain = (await collect(engine.run(q())))[-1].snapshot
     assert sk.calendar_calls == [] and plain.calendar == ()
     month = (await collect(engine.run(q(calendar=True))))[-1].snapshot
-    assert len(sk.calendar_calls) == 9  # 3 origins x 3 months
+    assert len(sk.calendar_calls) == 6  # 3 origins x 2 calls for 3 months
     assert month.calendar and month.calendar_note == ""
 
 
-async def test_calendar_anchors_on_15th_or_window_start(tmp_path, clock, pauses):
+async def test_calendar_anchors_start_30_days_in_and_continue_after_the_last_day(
+    tmp_path, clock, pauses
+):
     sk = FakeSkiplagged()
     engine = _engine(tmp_path, clock, pauses, sk)
     query = q(calendar=True, origins=("EZE",), depart_from=date(2027, 3, 20), nights_min=14)
     await collect(engine.run(query))
+    # First call covers Mar 20 - May 6 (anchor - 30 .. anchor + 17); the next starts at May 7.
     assert sk.calendar_calls == [
-        ("EZE", "MAD", date(2027, 3, 20), date(2027, 4, 3)),
-        ("EZE", "MAD", date(2027, 4, 15), date(2027, 4, 29)),
-        ("EZE", "MAD", date(2027, 5, 15), date(2027, 5, 29)),
+        ("EZE", "MAD", date(2027, 4, 19), date(2027, 5, 3)),
+        ("EZE", "MAD", date(2027, 6, 6), date(2027, 6, 20)),
     ]
+
+
+async def test_calendar_stops_once_the_window_is_covered(tmp_path, clock, pauses):
+    sk = FakeSkiplagged()
+    engine = _engine(tmp_path, clock, pauses, sk)
+    query = q(calendar=True, origins=("EZE",), depart_to=date(2027, 3, 31))
+    await collect(engine.run(query))
+    assert [c[2] for c in sk.calendar_calls] == [date(2027, 3, 31)]
+
+
+async def test_calendar_makes_at_most_three_calls_per_origin(tmp_path, clock, pauses):
+    def short(origin: str, anchor: date) -> CalendarResult:
+        days = tuple((anchor + timedelta(days=i), Decimal(1000)) for i in range(-30, -20))
+        return CalendarResult("skiplagged", "ok", days=days)
+
+    sk = FakeSkiplagged(calendar=short)
+    engine = _engine(tmp_path, clock, pauses, sk)
+    await collect(engine.run(q(calendar=True, origins=("EZE",))))
+    assert len(sk.calendar_calls) == 3
+
+
+@pytest.mark.parametrize("oneway", [False, True])
+@pytest.mark.parametrize(("last_month", "expected"), [(3, 7), (5, 10), (6, 12)])
+async def test_skiplagged_calls_per_search_are_pinned(
+    tmp_path, clock, pauses, oneway, last_month, expected
+):
+    # 3 origins, Kiwi found nothing (so every origin falls back to its own date pairs):
+    # 1 month = 3 calendar + 4 pairs, 3 months = 6 + 4, 4 months = 9 + 3 (the cap is 12).
+    sk = FakeSkiplagged(_skiplagged_hit)
+    engine = build_engine(
+        tmp_path,
+        clock,
+        pauses,
+        kiwi=FakeSource("kiwi", lambda r: SourceResult("kiwi", "ok")),
+        google=FakeSource("google", google_answer()),
+        skiplagged=sk,
+    )
+    last_day = {3: 31, 5: 31, 6: 30}[last_month]
+    query = q(
+        calendar=True,
+        depart_to=date(2027, last_month, last_day),
+        nights_min=None if oneway else 14,
+        nights_max=None if oneway else 21,
+    )
+    await collect(engine.run(query))
+    assert len(sk.calendar_calls) + len(sk.calls) == expected
+    assert len(sk.calendar_calls) + len(sk.calls) <= 12
+
+
+async def test_search_without_month_mode_confirms_four_pairs(tmp_path, clock, pauses):
+    sk = FakeSkiplagged(_skiplagged_hit)
+    engine = _engine(tmp_path, clock, pauses, sk)
+    await collect(engine.run(q()))
+    assert sk.calendar_calls == [] and 0 < len(sk.calls) <= 4
 
 
 async def test_calendar_keeps_days_in_window_and_adds_transfer(tmp_path, clock, pauses):
@@ -237,7 +299,7 @@ async def test_failed_calendar_is_not_cached(tmp_path, clock, pauses):
     engine = _engine(tmp_path, clock, pauses, sk)
     await collect(engine.run(q(calendar=True)))
     again = await collect(engine.run(q(calendar=True)))
-    assert not again[-1].snapshot.from_cache and len(sk.calendar_calls) == 18
+    assert not again[-1].snapshot.from_cache and len(sk.calendar_calls) == 6
 
 
 async def test_empty_calendar_carries_a_note(tmp_path, clock, pauses):
@@ -276,3 +338,145 @@ async def test_each_source_status_streams_when_it_finishes(tmp_path, clock, paus
         if isinstance(event, StatusEvent) and event.status.state == "ok":
             stamps[event.status.source] = time.monotonic()
     assert stamps["google"] - stamps["skiplagged"] > 0.2
+
+
+class SlowCalendar(FakeSkiplagged):
+    def __init__(self, delay_s: float, results=None, calendar: CalendarAnswer = ok_calendar):
+        super().__init__(results, calendar)
+        self._delay_s = delay_s
+
+    async def calendar(self, origin, destination, anchor, return_date):
+        await asyncio.sleep(self._delay_s)
+        return await super().calendar(origin, destination, anchor, return_date)
+
+
+async def test_calendar_cut_by_the_deadline_keeps_what_arrived(tmp_path, clock, pauses):
+    # 2 calls per origin at 0.2 s each; the 0.3 s hard cut lands between them.
+    sk = SlowCalendar(0.2, _skiplagged_hit)
+    engine = _engine(tmp_path, clock, pauses, sk, hard_timeout_s=0.3)
+    final = (await collect(engine.run(q(calendar=True))))[-1].snapshot
+    assert final.calendar
+    assert final.calendar_note.startswith("Calendario incompleto: falló MDZ (")
+    assert "se cortó a los 0.3 s" in final.calendar_note
+    assert len(sk.calendar_calls) == 3  # the second call of each origin was cut mid-flight
+
+
+async def test_partial_calendar_says_which_origin_failed_and_is_not_cached(tmp_path, clock, pauses):
+    def eze_broken(origin: str, anchor: date) -> CalendarResult:
+        if origin == "EZE":
+            return CalendarResult("skiplagged", "error", detail="Skiplagged: roto")
+        return ok_calendar(origin, anchor)
+
+    sk = FakeSkiplagged(_skiplagged_hit, calendar=eze_broken)
+    engine = _engine(tmp_path, clock, pauses, sk)
+    final = (await collect(engine.run(q(calendar=True))))[-1].snapshot
+    assert final.calendar
+    assert final.calendar_note == "Calendario incompleto: falló EZE (Skiplagged: roto)"
+    again = (await collect(engine.run(q(calendar=True))))[-1].snapshot
+    assert not again.from_cache
+
+
+async def test_interim_snapshot_marks_a_calendar_still_loading(tmp_path, clock, pauses):
+    from flytrip.engine.search import SnapshotEvent
+
+    engine = _engine(tmp_path, clock, pauses, SlowCalendar(0.3, _skiplagged_hit))
+    snapshots = [
+        e.snapshot async for e in engine.run(q(calendar=True)) if isinstance(e, SnapshotEvent)
+    ]
+    interim, final = snapshots[0], snapshots[-1]
+    assert interim.calendar_pending and interim.calendar == ()
+    assert not final.calendar_pending and final.calendar
+
+
+async def test_snapshot_without_month_mode_is_never_pending(tmp_path, clock, pauses):
+    engine = _engine(tmp_path, clock, pauses, FakeSkiplagged(_skiplagged_hit))
+    final = (await collect(engine.run(q())))[-1].snapshot
+    assert not final.calendar_pending
+
+
+async def test_skiplagged_soft_deadline_keeps_what_finished(tmp_path, clock, pauses):
+    class Mixed(FakeSkiplagged):
+        async def search(self, request: SourceRequest) -> SourceResult:
+            if request.origin != "MDZ":
+                await asyncio.sleep(5)
+            return await super().search(request)
+
+    engine = _engine(
+        tmp_path, clock, pauses, Mixed(_skiplagged_hit), skiplagged_soft_deadline_s=0.2
+    )
+    final = (await collect(engine.run(q())))[-1].snapshot
+    status = final.statuses["skiplagged"]
+    assert status.state == "partial" and status.detail == "se cortó a los 0.2 s"
+    assert final.statuses["google"].state == "ok"
+
+
+async def test_skiplagged_soft_deadline_with_nothing_finished_is_a_timeout(tmp_path, clock, pauses):
+    engine = _engine(
+        tmp_path,
+        clock,
+        pauses,
+        SlowCalendar(0, _skiplagged_hit),
+        skiplagged_soft_deadline_s=0.2,
+    )
+
+    async def never(request: SourceRequest) -> SourceResult:
+        await asyncio.sleep(5)
+        return SourceResult("skiplagged", "ok")
+
+    engine.skiplagged.search = never  # type: ignore[union-attr, method-assign]
+    final = (await collect(engine.run(q())))[-1].snapshot
+    assert final.statuses["skiplagged"].state == "timeout"
+
+
+async def test_itineraries_that_leave_from_another_origin_are_dropped(tmp_path, clock, pauses):
+    from tests.factories import itin_on
+
+    scl_trip = itin_on("SCL", "2027-03-12", "2027-03-27", 100).model_copy(update={"id": "WRONG"})
+
+    def replay(request: SourceRequest) -> SourceResult:
+        # Like a replay that answers every origin with the same recorded SCL trip.
+        trip = scl_trip.model_copy(update={"origin": request.origin})
+        return SourceResult("skiplagged", "ok", itineraries=(trip,), fetches=1)
+
+    engine = _engine(tmp_path, clock, pauses, FakeSkiplagged(replay))
+    final = (await collect(engine.run(q())))[-1].snapshot
+    # Only the SCL request may keep the recorded SCL trip.
+    assert {i.origin for i in final.itineraries if i.id == "WRONG"} == {"SCL"}
+    assert all(i.outbound.segments[0].from_airport == i.origin for i in final.itineraries)
+    status = final.statuses["skiplagged"]
+    assert "Se descartaron 3 resultados" in status.detail
+    assert status.state == "ok"  # dropping answers is not a block
+
+
+async def test_kiwi_results_are_checked_against_the_origin_too(tmp_path, clock, pauses):
+    from tests.factories import itin_on
+
+    wrong = itin_on("EZE", "2027-03-12", "2027-03-27", 100).model_copy(
+        update={"id": "WRONG", "origin": "SCL"}
+    )
+
+    def kiwi(request: SourceRequest) -> SourceResult:
+        found = (wrong,) if request.origin == "SCL" else ()
+        return SourceResult("kiwi", "ok", itineraries=found, fetches=1)
+
+    engine = build_engine(
+        tmp_path,
+        clock,
+        pauses,
+        kiwi=FakeSource("kiwi", kiwi),
+        google=FakeSource("google", google_answer()),
+    )
+    final = (await collect(engine.run(q())))[-1].snapshot
+    assert "WRONG" not in {i.id for i in final.itineraries}
+    assert "descartaron" in final.statuses["kiwi"].detail
+
+
+async def test_cards_all_dropped_by_the_source_are_not_a_silent_block(tmp_path, clock, pauses):
+    def all_dropped(request: SourceRequest) -> SourceResult:
+        return SourceResult("skiplagged", "ok", fetches=1, raw_count=5, dropped=5)
+
+    engine = _engine(tmp_path, clock, pauses, FakeSkiplagged(all_dropped))
+    final = (await collect(engine.run(q())))[-1].snapshot
+    status = final.statuses["skiplagged"]
+    assert status.state == "ok" and "descartaron" in status.detail
+    assert pauses.active_pause("skiplagged") is None

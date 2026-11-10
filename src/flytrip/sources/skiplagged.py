@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import math
 import re
 import time
-from collections.abc import Callable
+from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -18,11 +20,17 @@ from flytrip.sources.kiwi import KiwiProtocolError, parse_sse, utc_now
 logger = logging.getLogger(__name__)
 
 SKIPLAGGED_URL = "https://mcp.skiplagged.com/mcp"
-SKIPLAGGED_MAX_CONCURRENCY = 3
+SKIPLAGGED_MAX_CONCURRENCY = 2
+# Pacing: calls start at least this far apart (live, 3 free slots with no spacing got a 429).
+SKIPLAGGED_MIN_INTERVAL_S = 1.0
+# Rolling cap across searches: the engine (and this source) live for the whole app.
+SKIPLAGGED_WINDOW_CALLS = 30
+SKIPLAGGED_WINDOW_S = 600
+SKIPLAGGED_MAX_RETRY_AFTER_MINUTES = 24 * 60
 SKIPLAGGED_SEARCH_LIMIT = 20
 # Per HTTP call, counted once the call holds a semaphore slot (queueing does not count).
 SKIPLAGGED_REQUEST_TIMEOUT_S = 30
-SKIPLAGGED_CALL_BUDGET = 12  # search calls per confirmation phase, like Google's fetch budget
+SKIPLAGGED_CALL_BUDGET = 4  # search calls (date pairs) per confirmation phase
 # Con adults=2 el precio ya es el total del grupo (ver docs/sources/skiplagged.md).
 SKIPLAGGED_PRICE_IS_TOTAL = True
 SKIPLAGGED_RATE_LIMITED = "Skiplagged limitó las consultas (429)"
@@ -45,6 +53,10 @@ class SkiplaggedProtocolError(Exception):
     pass
 
 
+class SkiplaggedCapReached(Exception):  # noqa: N818
+    """The rolling cap of calls was reached: the call is skipped, the source is not blocked."""
+
+
 @dataclass(frozen=True)
 class CalendarResult:
     source: str
@@ -52,6 +64,7 @@ class CalendarResult:
     days: tuple[tuple[date, Decimal], ...] = ()
     detail: str = ""
     latency_ms: int = 0
+    pause_minutes: int = BLOCK_PAUSE_MINUTES  # how long to pause the source when "paused"
 
 
 def build_search_arguments(request: SourceRequest) -> dict[str, object]:
@@ -231,6 +244,26 @@ def normalize_search(
     destination: str | None = None,
     round_trip: bool | None = None,
 ) -> list[Itinerary]:
+    return normalize_search_counted(
+        rpc,
+        origin=origin,
+        adults=adults,
+        fetched_at=fetched_at,
+        destination=destination,
+        round_trip=round_trip,
+    )[0]
+
+
+def normalize_search_counted(
+    rpc: dict[str, Any],
+    *,
+    origin: str,
+    adults: int,
+    fetched_at: datetime,
+    destination: str | None = None,
+    round_trip: bool | None = None,
+) -> tuple[list[Itinerary], int, int]:
+    """(itineraries, cards the API returned, cards thrown away)."""
     data = _structured(rpc)
     pricing = data.get("pricing")
     currency = pricing.get("currency") if isinstance(pricing, dict) else None
@@ -239,11 +272,14 @@ def normalize_search(
     rows = _rows(_text(rpc))
     itineraries: list[Itinerary] = []
     dropped = 0
-    for raw in data.get("flights") or []:
+    cards = data.get("flights") or []
+    for raw in cards:
         link = str(raw.get("deepLink") or "")
         if _is_hidden_city(raw, rows.get(link)):
+            dropped += 1
             continue
         if not link.startswith("https://") or "#trip=" not in link:
+            dropped += 1
             continue
         row = rows.get(link)
         if row is None:
@@ -293,7 +329,7 @@ def normalize_search(
         )
     if dropped:
         logger.debug("Skiplagged: %d tarjetas descartadas", dropped)
-    return itineraries
+    return itineraries, len(cards), dropped
 
 
 def normalize_calendar(rpc: dict[str, Any]) -> list[tuple[date, Decimal]]:
@@ -325,6 +361,11 @@ class SkiplaggedSource:
         clock: Callable[[], datetime] = utc_now,
         max_concurrency: int = SKIPLAGGED_MAX_CONCURRENCY,
         request_timeout_s: float = SKIPLAGGED_REQUEST_TIMEOUT_S,
+        min_interval_s: float = SKIPLAGGED_MIN_INTERVAL_S,
+        window_calls: int = SKIPLAGGED_WINDOW_CALLS,
+        window_s: float = SKIPLAGGED_WINDOW_S,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._client = client
         self._request_timeout_s = request_timeout_s
@@ -332,6 +373,14 @@ class SkiplaggedSource:
         self._clock = clock
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._blocked_until: datetime | None = None
+        self._block_minutes = BLOCK_PAUSE_MINUTES
+        self._min_interval_s = min_interval_s
+        self._window_calls = window_calls
+        self._window_s = window_s
+        self._monotonic = monotonic
+        self._sleep = sleep
+        self._next_start = 0.0
+        self._started: deque[float] = deque()
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -339,15 +388,43 @@ class SkiplaggedSource:
     def _is_blocked(self) -> bool:
         return self._blocked_until is not None and self._clock() < self._blocked_until
 
-    def _block(self) -> None:
-        self._blocked_until = self._clock() + timedelta(minutes=BLOCK_PAUSE_MINUTES)
+    def _block(self, retry_after: str | None) -> None:
+        minutes = BLOCK_PAUSE_MINUTES
+        if retry_after is not None and retry_after.strip().isdecimal():
+            asked = math.ceil(int(retry_after) / 60)
+            minutes = max(minutes, min(asked, SKIPLAGGED_MAX_RETRY_AFTER_MINUTES))
+        self._block_minutes = minutes
+        self._blocked_until = self._clock() + timedelta(minutes=minutes)
+
+    async def _pace(self) -> None:
+        """Hold the slot until at least `min_interval_s` after the previous call started."""
+        now = self._monotonic()
+        start = max(now, self._next_start)
+        self._next_start = start + self._min_interval_s
+        if start > now:
+            await self._sleep(start - now)
+
+    def _check_cap(self) -> None:
+        """Count this call in the rolling window, or raise when the window is full."""
+        now = self._monotonic()
+        while self._started and now - self._started[0] >= self._window_s:
+            self._started.popleft()
+        if len(self._started) >= self._window_calls:
+            wait = math.ceil((self._started[0] + self._window_s - now) / 60)
+            raise SkiplaggedCapReached(
+                f"límite de {self._window_calls} consultas cada "
+                f"{self._window_s / 60:g} min; reintenta en {max(wait, 1)} min"
+            )
+        self._started.append(now)
 
     async def _call(self, tool: str, arguments: dict[str, object]) -> dict[str, Any]:
         """One POST. Raises SourceBlocked on 429, httpx errors, and the protocol/tool errors."""
         async with self._semaphore:
             # Calls queued behind a 429 already passed the engine's pause check.
             if self._is_blocked():
-                raise SourceBlocked(SKIPLAGGED_RATE_LIMITED)
+                raise SourceBlocked(SKIPLAGGED_RATE_LIMITED, self._block_minutes)
+            await self._pace()
+            self._check_cap()
             try:
                 async with asyncio.timeout(self._request_timeout_s):
                     response = await self._client.post(
@@ -356,8 +433,8 @@ class SkiplaggedSource:
             except TimeoutError:
                 raise httpx.ReadTimeout("sin respuesta a tiempo") from None
         if response.status_code == 429:
-            self._block()
-            raise SourceBlocked(SKIPLAGGED_RATE_LIMITED)
+            self._block(response.headers.get("Retry-After"))
+            raise SourceBlocked(SKIPLAGGED_RATE_LIMITED, self._block_minutes)
         if response.status_code >= 400:
             raise SkiplaggedProtocolError(f"respondió {response.status_code}")
         return parse_response(response.text)
@@ -375,7 +452,7 @@ class SkiplaggedSource:
         try:
             rpc = await self._call("sk_flights_search", arguments)
             try:
-                itineraries = normalize_search(
+                itineraries, raw_count, dropped = normalize_search_counted(
                     rpc,
                     origin=request.origin,
                     adults=request.adults,
@@ -392,7 +469,12 @@ class SkiplaggedSource:
                 AttributeError,
             ) as exc:  # pydantic's ValidationError is a ValueError
                 raise SkiplaggedProtocolError("formato cambiado") from exc
-        except (httpx.TransportError, SkiplaggedToolError, SkiplaggedProtocolError) as exc:
+        except (
+            httpx.TransportError,
+            SkiplaggedToolError,
+            SkiplaggedProtocolError,
+            SkiplaggedCapReached,
+        ) as exc:
             status, detail = self._failure(exc)
             return SourceResult(
                 source=self.name,
@@ -401,7 +483,12 @@ class SkiplaggedSource:
                 fetches=1,
             )
         return SourceResult(
-            source=self.name, status="ok", itineraries=tuple(itineraries), fetches=1
+            source=self.name,
+            status="ok",
+            itineraries=tuple(itineraries),
+            fetches=1,
+            raw_count=raw_count,
+            dropped=dropped,
         )
 
     async def calendar(
@@ -410,7 +497,10 @@ class SkiplaggedSource:
         started = time.monotonic()
 
         def result(
-            status: str, detail: str = "", days: tuple[tuple[date, Decimal], ...] = ()
+            status: str,
+            detail: str = "",
+            days: tuple[tuple[date, Decimal], ...] = (),
+            pause_minutes: int = BLOCK_PAUSE_MINUTES,
         ) -> CalendarResult:
             return CalendarResult(
                 source=self.name,
@@ -418,6 +508,7 @@ class SkiplaggedSource:
                 days=days,
                 detail=detail,
                 latency_ms=int((time.monotonic() - started) * 1000),
+                pause_minutes=pause_minutes,
             )
 
         try:
@@ -427,7 +518,7 @@ class SkiplaggedSource:
             )
             days = tuple(normalize_calendar(rpc))
         except SourceBlocked as blocked:
-            return result("paused", blocked.reason)
+            return result("paused", blocked.reason, pause_minutes=blocked.pause_minutes)
         except Exception as exc:
             status, detail = self._failure(exc)
             return result(status, detail)
