@@ -17,6 +17,7 @@ from flytrip.sources.kiwi import KiwiProtocolError, parse_sse, utc_now
 SKIPLAGGED_URL = "https://mcp.skiplagged.com/mcp"
 SKIPLAGGED_MAX_CONCURRENCY = 3
 SKIPLAGGED_SEARCH_LIMIT = 20
+SKIPLAGGED_CALL_BUDGET = 12  # search calls per confirmation phase, like Google's fetch budget
 # Con adults=2 el precio ya es el total del grupo (ver docs/sources/skiplagged.md).
 SKIPLAGGED_PRICE_IS_TOTAL = True
 SKIPLAGGED_RATE_LIMITED = "Skiplagged limitó las consultas (429)"

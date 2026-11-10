@@ -163,3 +163,25 @@ def test_hasta_mes_without_mes_and_missing_dates_exit_2(monkeypatch):
     assert r.exit_code == 2
     r = _month_run(monkeypatch, "--solo-ida")
     assert r.exit_code == 2 and "Indica --mes o --desde y --hasta." in r.output
+
+
+def test_month_search_prints_one_cheapest_day_line_per_month(monkeypatch):
+    from decimal import Decimal
+
+    from flytrip.core.calendar import CalendarDay
+
+    snapshot = SNAPSHOT_A_B_C.model_copy(
+        update={
+            "calendar": (
+                CalendarDay(day=date(2027, 3, 9), price_usd=Decimal("954"), origin="EZE"),
+                CalendarDay(day=date(2027, 3, 12), price_usd=Decimal("1100"), origin="MDZ"),
+                CalendarDay(day=date(2027, 4, 2), price_usd=Decimal("1001"), origin="SCL"),
+            )
+        }
+    )
+    monkeypatch.setattr(cli, "engine_factory", lambda home: StaticEngine(snapshot))
+    month_args = ["--mes", "2027-03", "--hasta-mes", "2027-04", "--noches", "14-21"]
+    r = CliRunner().invoke(cli.app, ["search", "MAD", *month_args])
+    assert r.exit_code == 0, r.output
+    assert "Día más barato de marzo: 09/03 desde EZE · 954 USD (orientativo)" in r.output
+    assert "Día más barato de abril: 02/04 desde SCL · 1.001 USD (orientativo)" in r.output

@@ -12,8 +12,9 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
+from flytrip.core.calendar import CalendarDay
 from flytrip.core.models import Itinerary
-from flytrip.core.months import months_window, validate_months
+from flytrip.core.months import MONTH_NAMES, months_window, validate_months
 from flytrip.core.query import (
     SearchQuery,
     today_for_validation,
@@ -36,6 +37,7 @@ from flytrip.web.views import (
     SOURCE_NAMES,
     UNKNOWN_SEPARATE,
     baggage_label,
+    format_number,
     format_short_date,
     format_usd,
     missing_transfer_origins,
@@ -112,6 +114,20 @@ def _itinerary_row(index: int, it: Itinerary) -> tuple[str, ...]:
     )
 
 
+def _calendar_lines(days: tuple[CalendarDay, ...]) -> list[str]:
+    """One line per month with its cheapest day (the prices are only a guide)."""
+    best: dict[tuple[int, int], CalendarDay] = {}
+    for entry in days:
+        key = (entry.day.year, entry.day.month)
+        if key not in best or entry.price_usd < best[key].price_usd:
+            best[key] = entry
+    return [
+        f"Día más barato de {MONTH_NAMES[month - 1]}: {format_short_date(entry.day)} "
+        f"desde {entry.origin} · {format_number(entry.price_usd)} USD (orientativo)"
+        for (_, month), entry in sorted(best.items())
+    ]
+
+
 def _render(snapshot: SearchSnapshot, settings: Settings) -> None:
     console = Console() if sys.stdout.isatty() else Console(width=200, soft_wrap=False)
     table = Table(title=f"Pasajes a {escape(snapshot.query.destination)}")
@@ -142,6 +158,10 @@ def _render(snapshot: SearchSnapshot, settings: Settings) -> None:
         console.print(escape(f"No se pudo consultar {origin_label(origin)}: {reason}"))
     for status in snapshot.statuses.values():
         console.print(escape(status_label(status)))
+    for line in _calendar_lines(snapshot.calendar):
+        console.print(escape(line))
+    if snapshot.calendar_note:
+        console.print(escape(snapshot.calendar_note))
     if snapshot.from_cache:
         console.print(f"Resultado de la caché (hace {snapshot.cache_age_minutes} min).")
 
