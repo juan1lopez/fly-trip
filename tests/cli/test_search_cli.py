@@ -158,6 +158,13 @@ def test_month_mode_validation_messages(monkeypatch):
     assert r.exit_code == 2 and "Puedes elegir hasta 4 meses." in r.output
 
 
+def test_month_mode_on_the_last_day_of_the_month(monkeypatch):
+    monkeypatch.setenv("FLYTRIP_TODAY", "2026-11-30")
+    r = _month_run(monkeypatch, "--mes", "2026-11", "--solo-ida")
+    assert r.exit_code == 2 and "Ese mes ya terminó: 2026-11." in r.output
+    assert "no puede ser anterior" not in r.output
+
+
 def test_hasta_mes_without_mes_and_missing_dates_exit_2(monkeypatch):
     r = _month_run(monkeypatch, "--hasta-mes", "2027-04", "--solo-ida")
     assert r.exit_code == 2

@@ -57,6 +57,8 @@ def validate_months(first: str, last: str | None, today: date) -> list[str]:
         errors.append(f"Puedes elegir hasta {MAX_MONTHS} meses.")
     if first_ym < (today.year, today.month):
         errors.append(f"Ese mes ya pasó: {first}.")
+    elif date(*first_ym, calendar.monthrange(*first_ym)[1]) <= today:
+        errors.append(f"Ese mes ya terminó: {first}.")
     return errors
 
 

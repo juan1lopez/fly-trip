@@ -54,5 +54,11 @@ def test_validate_more_than_four_months():
     assert validate_months("2027-01", "2027-05", TODAY) == ["Puedes elegir hasta 4 meses."]
 
 
+def test_validate_current_month_on_its_last_day():
+    last_day = date(2026, 11, 30)
+    assert validate_months("2026-11", None, last_day) == ["Ese mes ya terminó: 2026-11."]
+    assert validate_months("2026-11", None, date(2026, 11, 29)) == []
+
+
 def test_validate_past_month():
     assert validate_months("2026-10", None, TODAY) == ["Ese mes ya pasó: 2026-10."]
