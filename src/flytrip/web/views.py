@@ -1,11 +1,14 @@
 """Presentation helpers shared by the CLI and the web UI."""
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
+from flytrip.core.calendar import cheap_days, month_grid
 from flytrip.core.models import Baggage, Itinerary, Leg, TransferCost
-from flytrip.engine.search import SourceStatus
+from flytrip.core.months import MONTH_NAMES
+from flytrip.engine.search import SearchSnapshot, SourceStatus
 
 ORIGIN_LABELS = {
     "MDZ": "Mendoza (todo en avión)",
@@ -108,3 +111,84 @@ def age_label(fetched_at: datetime, now: datetime) -> str:
     if minutes < 60 * 24:
         return f"hace {minutes // 60} h"
     return f"hace {minutes // (60 * 24)} d"
+
+
+@dataclass(frozen=True)
+class CalendarCell:
+    day: date
+    price: Decimal | None = None
+    origin: str | None = None
+    cheap: bool = False
+    cheapest: bool = False
+    aria_label: str = ""
+
+
+@dataclass(frozen=True)
+class MonthView:
+    title: str
+    weeks: list[list[CalendarCell | None]]
+
+
+def best_origin(snapshot: SearchSnapshot) -> str | None:
+    """The origin whose best itinerary has the lowest total from home."""
+    found = [(it.total_from_home_usd, code) for code, it in snapshot.best_per_origin.items() if it]
+    return min(found)[1] if found else None
+
+
+def _day_label(day: date) -> str:
+    return f"{day.day} de {MONTH_NAMES[day.month - 1]} de {day.year}"
+
+
+def calendar_months(snapshot: SearchSnapshot) -> list[MonthView]:
+    """One grid per month of the query window; empty unless the search was in month mode."""
+    query = snapshot.query
+    if not query.calendar:
+        return []
+    by_day = {d.day: d for d in snapshot.calendar}
+    cheap = cheap_days(snapshot.calendar)
+    cheapest = min(snapshot.calendar, key=lambda d: (d.price_usd, d.day)).day if by_day else None
+    months: list[MonthView] = []
+    year, month = query.depart_from.year, query.depart_from.month
+    while (year, month) <= (query.depart_to.year, query.depart_to.month):
+        weeks: list[list[CalendarCell | None]] = []
+        for week in month_grid(year, month):
+            row: list[CalendarCell | None] = []
+            for day in week:
+                if day is None:
+                    row.append(None)
+                    continue
+                entry = by_day.get(day)
+                if entry is None:
+                    row.append(CalendarCell(day=day))
+                    continue
+                label = (
+                    f"{_day_label(day)}: desde {format_usd(entry.price_usd)}, "
+                    f"{origin_label(entry.origin).lower()}. Buscar este día"
+                )
+                row.append(
+                    CalendarCell(
+                        day=day,
+                        price=entry.price_usd,
+                        origin=entry.origin,
+                        cheap=day in cheap,
+                        cheapest=day == cheapest,
+                        aria_label=label,
+                    )
+                )
+            weeks.append(row)
+        title = f"{MONTH_NAMES[month - 1].capitalize()} {year}"
+        months.append(MonthView(title=title, weeks=weeks))
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return months
+
+
+def month_options(today: date, count: int = 6) -> list[tuple[str, str]]:
+    """(`AAAA-MM`, short label) for the current month and the next `count - 1`."""
+    options: list[tuple[str, str]] = []
+    year, month = today.year, today.month
+    for _ in range(count):
+        options.append(
+            (f"{year:04d}-{month:02d}", f"{MONTH_NAMES[month - 1][:3].capitalize()} {year}")
+        )
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return options
