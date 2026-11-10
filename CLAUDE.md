@@ -1,7 +1,7 @@
 # fly-trip
 
-Buscador personal de vuelos baratos: una web local y una CLI que consultan Kiwi.com (MCP oficial)
-y Google Flights (`fli`) desde Mendoza (MDZ), Santiago (SCL) y Ezeiza (EZE).
+Buscador personal de vuelos baratos: una web local y una CLI que consultan Kiwi.com (MCP oficial),
+Google Flights (`fli`) y Skiplagged (MCP oficial) desde Mendoza (MDZ), Santiago (SCL) y Ezeiza (EZE).
 Spec vigente: `docs/superpowers/specs/2026-11-09-buscador-vuelos-baratos-design.md`.
 
 ## Comandos
@@ -11,7 +11,7 @@ uv sync                  # instala dependencias
 uv run fly check         # todos los chequeos (formato, lint, tipos, capas, tests)
 uv run fly check --fast  # igual, sin tests e2e del navegador
 uv run fly web           # levanta la web local
-uv run fly search        # busca desde la terminal
+uv run fly search        # busca en la terminal (--mes/--hasta-mes: por mes)
 uv run fly doctor        # revisa que las fuentes sigan respondiendo
 uv run fly record        # graba fixtures nuevos desde las fuentes reales
 ```
@@ -23,7 +23,7 @@ Antes de dar una tarea por terminada, `uv run fly check` debe pasar completo.
 Se verifican con import-linter dentro de `fly check`:
 
 - `core`: modelos, ranking, fusión y traslados. Lógica pura, no importa nada del proyecto.
-- `sources`: Kiwi y Google Flights. Solo importa `core`.
+- `sources`: Kiwi, Google Flights y Skiplagged. Solo importa `core`.
 - `engine`: orquesta las fuentes. Importa `core` y `sources`.
 - `web` importa `engine` y `core`, y nunca importa `cli`. `cli` importa `web`, `engine` y `core`.
 - `devtools`: herramientas de desarrollo; la app no las importa.
@@ -43,6 +43,8 @@ Se verifican con import-linter dentro de `fly check`:
 - Nunca reformatear `docs/` con ruff (está excluido; reescribe los bloques Python de los Markdown).
 - En Windows, ser explícito con UTF-8: leer `sys.stdin.buffer` y decodificar como UTF-8; usar `PYTHONUTF8=1` para subprocesos y salida de consola.
 - `pytest` común excluye `live`; correr `-m live` solo a propósito, porque usa la red.
+- Los worktrees de agentes arrancan desde origin/main: hacer `git reset --hard` a la rama de integración antes de empezar.
+- Skiplagged: los pasajes hidden city (ciudad oculta) se excluyen siempre; nunca se piden ni se muestran.
 - Google Flights usa `fli` 0.10.0 desde GitHub (commit `881aee5`); la 0.9.0 de PyPI devolvía vacío desde esta máquina. Ver `docs/sources/google-flights.md`.
 
 ## Cómo añadir una fuente
@@ -55,7 +57,7 @@ Se verifican con import-linter dentro de `fly check`:
 
 ## Mapa de docs
 
-- `docs/architecture.md`: capas, flujo de la búsqueda y qué módulo cumple cada parte del spec.
+- `docs/architecture.md`: capas, flujo de la búsqueda (modo fechas y mes) y qué módulo cumple cada parte del spec.
 - `docs/setup.md`: puesta en marcha.
 - `docs/sources/`: notas de cada fuente (límites, rarezas, formato).
 - `docs/superpowers/`: specs y planes.
